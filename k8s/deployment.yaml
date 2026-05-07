@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: demo-app
-          image: ghcr.io/qvest-digital/mxl-dmf-demo-app:latest # {"$imagepolicy": "flux-system:demo-app"}
+          image: ghcr.io/qvest-digital/mxl-dmf-demo-app:IMAGE_TAG
           ports:
             - containerPort: 8080
           livenessProbe:

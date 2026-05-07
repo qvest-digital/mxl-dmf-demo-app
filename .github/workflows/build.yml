@@ -48,7 +48,7 @@ jobs:
             echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and push
+      - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -57,3 +57,37 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
+
+      - name: Install Flux CLI
+        shell: bash
+        run: curl -s https://fluxcd.io/install.sh | sudo bash
+
+      - name: Render k8s manifests with image tag
+        shell: bash
+        run: |
+          IMAGE_TAG="${{ steps.version.outputs.version }}"
+          mkdir -p /tmp/k8s-rendered
+          for f in k8s/*.yaml; do
+            sed "s|IMAGE_TAG|${IMAGE_TAG}|g" "$f" > "/tmp/k8s-rendered/$(basename $f)"
+          done
+          echo "=== Rendered manifests ==="
+          cat /tmp/k8s-rendered/*.yaml
+
+      - name: Push k8s manifests as OCI artifact
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          flux push artifact \
+            "oci://${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests:${SHORT_SHA}" \
+            --path="/tmp/k8s-rendered" \
+            --source="$(git config --get remote.origin.url)" \
+            --revision="${GITHUB_REF_NAME}@sha1:${GITHUB_SHA}" \
+            --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+
+          flux tag artifact \
+            "oci://${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests:${SHORT_SHA}" \
+            --tag latest \
+            --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+
+          echo "Pushed: mxl-dmf-demo-app-manifests:${SHORT_SHA}"
+          echo "Tagged: mxl-dmf-demo-app-manifests:latest"
