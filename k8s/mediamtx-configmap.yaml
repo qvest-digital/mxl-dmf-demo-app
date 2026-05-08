@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mediamtx-config
+  labels:
+    app: mediamtx
+data:
+  mediamtx.yml: |
+    # MediaMTX — SRT to WebRTC/HLS gateway for MXL demo
+    logLevel: info
+
+    # WebRTC
+    webrtc: true
+    webrtcAddress: :8889
+
+    # HLS fallback
+    hls: true
+    hlsAddress: :8888
+
+    # Disable unused protocols
+    rtsp: false
+    rtmp: false
+    srt: true
+    srtAddress: :8890
+
+    paths:
+      mxl-stream:
+        source: srt://reader-media-service:5000?mode=caller
+        sourceOnDemand: true
