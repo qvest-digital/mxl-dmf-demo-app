@@ -27,15 +27,13 @@ spec:
               mountPath: /mediamtx.yml
               subPath: mediamtx.yml
           livenessProbe:
-            httpGet:
-              path: /v3/paths/list
-              port: 9997
+            tcpSocket:
+              port: 8888
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
-            httpGet:
-              path: /v3/paths/list
-              port: 9997
+            tcpSocket:
+              port: 8888
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:
