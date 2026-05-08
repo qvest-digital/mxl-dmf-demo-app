@@ -56,6 +56,7 @@ func main() {
 <html>
 <head>
 <title>MXL Multiviewer</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #eee; padding: 12px; }
@@ -93,10 +94,10 @@ func main() {
 
   <script>
     const sources = [
-      { id: 'mxl',   label: 'MXL Live (EFA/RDMA → SRT)', whep: '/whep/mxl-stream/whep' },
-      { id: 'smpte', label: 'SMPTE Bars',                 whep: '/whep/smpte/whep' },
-      { id: 'ball',  label: 'Bouncing Ball',              whep: '/whep/ball/whep' },
-      { id: 'snow',  label: 'Snow / Noise',               whep: '/whep/snow/whep' },
+      { id: 'mxl',   label: 'MXL Live (EFA/RDMA → SRT)', url: '/hls/mxl-stream/index.m3u8' },
+      { id: 'smpte', label: 'SMPTE Bars',                 url: '/hls/smpte/index.m3u8' },
+      { id: 'ball',  label: 'Bouncing Ball',              url: '/hls/ball/index.m3u8' },
+      { id: 'snow',  label: 'Snow / Noise',               url: '/hls/snow/index.m3u8' },
     ];
 
     const grid = document.getElementById('grid');
@@ -124,100 +125,68 @@ func main() {
         '<div class="tile-metrics">' +
           '<span>Res: <span class="val" id="res-' + src.id + '">—</span></span>' +
           '<span>Bitrate: <span class="val" id="bps-' + src.id + '">—</span></span>' +
-          '<span>Jitter: <span class="val" id="buf-' + src.id + '">—</span></span>' +
-          '<span>Frames: <span class="val" id="seg-' + src.id + '">0</span></span>' +
+          '<span>Buffer: <span class="val" id="buf-' + src.id + '">—</span></span>' +
+          '<span>Segs: <span class="val" id="seg-' + src.id + '">0</span></span>' +
         '</div>';
       grid.appendChild(tile);
       return tile;
-    }
-
-    async function whepConnect(whepUrl, video) {
-      const pc = new RTCPeerConnection({ iceServers: [] });
-      pc.addTransceiver('video', { direction: 'recvonly' });
-      pc.addTransceiver('audio', { direction: 'recvonly' });
-      pc.ontrack = (ev) => { video.srcObject = ev.streams[0]; video.play(); };
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      // Wait for ICE gathering
-      await new Promise(r => {
-        if (pc.iceGatheringState === 'complete') return r();
-        pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') r(); };
-        setTimeout(r, 2000);
-      });
-
-      const resp = await fetch(whepUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/sdp' },
-        body: pc.localDescription.sdp,
-      });
-      if (!resp.ok) throw new Error('WHEP ' + resp.status);
-      const answer = await resp.text();
-      await pc.setRemoteDescription({ type: 'answer', sdp: answer });
-      return pc;
     }
 
     function initPlayer(src) {
       const tile = createTile(src);
       const video = document.getElementById('v-' + src.id);
       const stEl = document.getElementById('st-' + src.id);
-      let pc = null;
+      let segs = 0, lastBytes = 0, lastTime = 0;
 
-      async function connect() {
-        try {
-          stEl.textContent = 'CONNECTING';
-          stEl.className = 'tile-status connecting';
-          tile.className = 'tile';
-          log('[' + src.id + '] Connecting via WebRTC...', 'info');
+      if (!Hls.isSupported()) return;
 
-          if (pc) { pc.close(); pc = null; }
-          pc = await whepConnect(src.whep, video);
+      const hls = new Hls({ liveSyncDurationCount: 3, liveMaxLatencyDurationCount: 6, enableWorker: true });
+      hls.loadSource(src.url);
+      hls.attachMedia(video);
 
-          stEl.textContent = 'LIVE';
-          stEl.className = 'tile-status live';
-          tile.className = 'tile active';
-          log('[' + src.id + '] WebRTC connected', 'ok');
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        stEl.textContent = 'LIVE';
+        stEl.className = 'tile-status live';
+        tile.className = 'tile active';
+        log('[' + src.id + '] Stream connected', 'ok');
+        video.play();
+      });
 
-          pc.onconnectionstatechange = () => {
-            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-              log('[' + src.id + '] Connection lost, reconnecting...', 'err');
-              stEl.textContent = 'OFFLINE';
-              stEl.className = 'tile-status offline';
-              tile.className = 'tile error';
-              setTimeout(connect, 3000);
-            }
-          };
-        } catch(e) {
+      hls.on(Hls.Events.FRAG_LOADED, (e, data) => {
+        segs++;
+        document.getElementById('seg-' + src.id).textContent = segs;
+        const bytes = data.frag.stats.total;
+        const now = Date.now();
+        if (lastTime > 0) {
+          const mbps = ((bytes * 8) / ((now - lastTime) / 1000) / 1e6).toFixed(1);
+          document.getElementById('bps-' + src.id).textContent = mbps + ' Mbps';
+        }
+        lastBytes = bytes;
+        lastTime = now;
+      });
+
+      hls.on(Hls.Events.ERROR, (ev, data) => {
+        if (data.fatal) {
           stEl.textContent = 'OFFLINE';
           stEl.className = 'tile-status offline';
           tile.className = 'tile error';
-          log('[' + src.id + '] ' + e.message, 'err');
-          setTimeout(connect, 5000);
+          log('[' + src.id + '] ' + data.details, 'err');
+          setTimeout(() => {
+            stEl.textContent = 'CONNECTING';
+            stEl.className = 'tile-status connecting';
+            tile.className = 'tile';
+            hls.loadSource(src.url);
+          }, 5000);
         }
-      }
-      connect();
+      });
 
       setInterval(() => {
         if (video.videoWidth) {
           document.getElementById('res-' + src.id).textContent = video.videoWidth + '×' + video.videoHeight;
         }
-        if (pc) {
-          pc.getStats().then(stats => {
-            stats.forEach(s => {
-              if (s.type === 'inbound-rtp' && s.kind === 'video') {
-                if (s.bytesReceived && s._prevBytes !== undefined) {
-                  const dt = (s.timestamp - s._prevTs) / 1000;
-                  const mbps = ((s.bytesReceived - s._prevBytes) * 8 / dt / 1e6).toFixed(1);
-                  document.getElementById('bps-' + src.id).textContent = mbps + ' Mbps';
-                }
-                s._prevBytes = s.bytesReceived;
-                s._prevTs = s.timestamp;
-                document.getElementById('seg-' + src.id).textContent = s.framesReceived || 0;
-                document.getElementById('buf-' + src.id).textContent = (s.jitterBufferDelay / (s.jitterBufferEmittedCount || 1) * 1000).toFixed(0) + 'ms';
-              }
-            });
-          });
+        if (video.buffered.length > 0) {
+          const buf = (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1);
+          document.getElementById('buf-' + src.id).textContent = buf + 's';
         }
       }, 1000);
     }
@@ -229,17 +198,19 @@ func main() {
 </html>`)
 	})
 
-	// Reverse proxy WHEP (WebRTC) from MediaMTX
-	mediamtxWebRTC := os.Getenv("MEDIAMTX_WEBRTC_URL")
-	if mediamtxWebRTC == "" {
-		mediamtxWebRTC = "http://mediamtx:8889"
+	// Reverse proxy HLS from MediaMTX
+	hlsTarget, _ := url.Parse(mediamtxHLS)
+	hlsProxy := httputil.NewSingleHostReverseProxy(hlsTarget)
+	hlsProxy.ModifyResponse = func(resp *http.Response) error {
+		if loc := resp.Header.Get("Location"); loc != "" {
+			resp.Header.Set("Location", "/hls"+loc)
+		}
+		return nil
 	}
-	webrtcTarget, _ := url.Parse(mediamtxWebRTC)
-	webrtcProxy := httputil.NewSingleHostReverseProxy(webrtcTarget)
-	http.HandleFunc("/whep/", func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/whep"):]
-		r.Host = webrtcTarget.Host
-		webrtcProxy.ServeHTTP(w, r)
+	http.HandleFunc("/hls/", func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = r.URL.Path[len("/hls"):]
+		r.Host = hlsTarget.Host
+		hlsProxy.ServeHTTP(w, r)
 	})
 
 	addr := ":8080"

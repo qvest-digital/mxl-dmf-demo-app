@@ -25,7 +25,7 @@ spec:
                 videotestsrc pattern=smpte is-live=true ! \
                 video/x-raw,width=1280,height=720,framerate=25/1 ! \
                 clockoverlay font-desc="Sans Bold 36" ! \
-                x264enc tune=zerolatency bitrate=2000 key-int-max=50 ! \
+                x264enc tune=zerolatency bitrate=2000 key-int-max=50 option-string="repeat-headers=1" ! \
                 mpegtsmux ! \
                 srtsink uri=srt://:9000 latency=500 mode=listener
           ports:
@@ -80,7 +80,7 @@ spec:
                 videotestsrc pattern=ball is-live=true ! \
                 video/x-raw,width=1280,height=720,framerate=25/1 ! \
                 clockoverlay font-desc="Sans Bold 36" ! \
-                x264enc tune=zerolatency bitrate=2000 key-int-max=50 ! \
+                x264enc tune=zerolatency bitrate=2000 key-int-max=50 option-string="repeat-headers=1" ! \
                 mpegtsmux ! \
                 srtsink uri=srt://:9000 latency=500 mode=listener
           ports:
@@ -135,7 +135,7 @@ spec:
                 videotestsrc pattern=snow is-live=true ! \
                 video/x-raw,width=1280,height=720,framerate=25/1 ! \
                 clockoverlay font-desc="Sans Bold 36" ! \
-                x264enc tune=zerolatency bitrate=2000 key-int-max=50 ! \
+                x264enc tune=zerolatency bitrate=2000 key-int-max=50 option-string="repeat-headers=1" ! \
                 mpegtsmux ! \
                 srtsink uri=srt://:9000 latency=500 mode=listener
           ports:
