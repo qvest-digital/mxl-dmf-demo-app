@@ -4,3 +4,6 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - mediamtx-configmap.yaml
+  - mediamtx-deployment.yaml
+  - mediamtx-service.yaml
