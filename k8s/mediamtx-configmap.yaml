@@ -32,7 +32,6 @@ data:
 
       mxl-stream:
         source: publisher
-        sourceOnDemand: true
         runOnDemand: >-
           ffmpeg -i rtsp://localhost:8554/mxl-raw
           -c:v copy -bsf:v dump_extra
