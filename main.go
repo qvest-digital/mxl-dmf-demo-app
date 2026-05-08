@@ -118,6 +118,12 @@ func main() {
 	// Reverse proxy HLS from MediaMTX
 	hlsTarget, _ := url.Parse(mediamtxHLS)
 	hlsProxy := httputil.NewSingleHostReverseProxy(hlsTarget)
+	hlsProxy.ModifyResponse = func(resp *http.Response) error {
+		if loc := resp.Header.Get("Location"); loc != "" {
+			resp.Header.Set("Location", "/hls"+loc)
+		}
+		return nil
+	}
 	http.HandleFunc("/hls/", func(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path = r.URL.Path[len("/hls"):]
 		r.Host = hlsTarget.Host
