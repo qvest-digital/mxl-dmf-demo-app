@@ -7,3 +7,4 @@ resources:
   - mediamtx-configmap.yaml
   - mediamtx-deployment.yaml
   - mediamtx-service.yaml
+  - testsrc-deployments.yaml

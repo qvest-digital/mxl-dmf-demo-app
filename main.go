@@ -55,196 +55,144 @@ func main() {
 		fmt.Fprint(w, `<!DOCTYPE html>
 <html>
 <head>
-<title>MXL Live Stream</title>
+<title>MXL Multiviewer</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 30px auto; padding: 0 20px; background: #111; color: #eee; }
-  h1 { text-align: center; margin-bottom: 8px; }
-  .nav { text-align: center; margin-bottom: 16px; }
+  body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #eee; padding: 12px; }
+  h1 { text-align: center; margin-bottom: 12px; font-size: 1.4em; }
+  .nav { text-align: center; margin-bottom: 12px; font-size: 0.85em; }
   a { color: #88bbff; }
-  video { width: 100%; background: #000; border-radius: 8px; }
-  .status-bar { text-align: center; color: #888; font-size: 0.85em; margin: 10px 0; }
-  #error { color: #ff6666; display: none; text-align: center; }
-  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }
-  .metric { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 14px; }
-  .metric .label { font-size: 0.75em; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
-  .metric .value { font-size: 1.4em; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
-  .metric .value.good { color: #4caf50; }
-  .metric .value.warn { color: #ff9800; }
-  .metric .value.bad { color: #f44336; }
-  .metric .value.neutral { color: #eee; }
-  .log { margin-top: 16px; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 0.8em; max-height: 200px; overflow-y: auto; }
-  .log .entry { padding: 2px 0; color: #999; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 1400px; margin: 0 auto; }
+  .tile { background: #111; border: 2px solid #222; border-radius: 6px; overflow: hidden; position: relative; }
+  .tile.active { border-color: #4caf50; }
+  .tile.error { border-color: #f44336; }
+  .tile-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #1a1a2e; font-size: 0.8em; }
+  .tile-label { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .tile-status { font-size: 0.75em; padding: 2px 8px; border-radius: 10px; }
+  .tile-status.live { background: #4caf50; color: #000; }
+  .tile-status.connecting { background: #ff9800; color: #000; }
+  .tile-status.offline { background: #f44336; color: #fff; }
+  .tile video { width: 100%; display: block; background: #000; aspect-ratio: 16/9; }
+  .tile-metrics { display: flex; gap: 12px; padding: 6px 10px; background: #0d0d1a; font-size: 0.7em; color: #888; font-variant-numeric: tabular-nums; }
+  .tile-metrics span { white-space: nowrap; }
+  .tile-metrics .val { color: #ccc; font-weight: 500; }
+  .log { max-width: 1400px; margin: 12px auto 0; background: #0a0a0a; border: 1px solid #222; border-radius: 6px; padding: 8px 12px; font-family: monospace; font-size: 0.7em; max-height: 150px; overflow-y: auto; }
+  .log .entry { padding: 1px 0; color: #666; }
   .log .entry.err { color: #f44336; }
   .log .entry.ok { color: #4caf50; }
   .log .entry.info { color: #2196f3; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
-  <h1>📺 MXL Live Stream</h1>
+  <h1>📺 MXL Multiviewer</h1>
   <p class="nav"><a href="/">← Back to Demo App</a></p>
-  <video id="video" controls autoplay muted></video>
-  <p class="status-bar" id="status">Connecting to stream...</p>
-  <p id="error">Stream unavailable. The MXL reader/writer pipeline may not be running.</p>
 
-  <div class="metrics">
-    <div class="metric"><div class="label">Stream State</div><div class="value neutral" id="m-state">—</div></div>
-    <div class="metric"><div class="label">Resolution</div><div class="value neutral" id="m-resolution">—</div></div>
-    <div class="metric"><div class="label">Bitrate</div><div class="value neutral" id="m-bitrate">—</div></div>
-    <div class="metric"><div class="label">Buffered</div><div class="value neutral" id="m-buffer">—</div></div>
-    <div class="metric"><div class="label">Latency</div><div class="value neutral" id="m-latency">—</div></div>
-    <div class="metric"><div class="label">Dropped Frames</div><div class="value neutral" id="m-dropped">—</div></div>
-    <div class="metric"><div class="label">Segments Loaded</div><div class="value neutral" id="m-segments">—</div></div>
-    <div class="metric"><div class="label">Uptime</div><div class="value neutral" id="m-uptime">—</div></div>
-  </div>
-
+  <div class="grid" id="grid"></div>
   <div class="log" id="log"></div>
 
   <script>
-    const video = document.getElementById('video');
-    const statusEl = document.getElementById('status');
-    const errorEl = document.getElementById('error');
-    const logEl = document.getElementById('log');
-    const hlsUrl = '/hls/mxl-stream/index.m3u8';
+    const sources = [
+      { id: 'mxl',   label: 'MXL Live (EFA/RDMA → SRT)', url: '/hls/mxl-stream/index.m3u8' },
+      { id: 'smpte', label: 'SMPTE Bars',                 url: '/hls/smpte/index.m3u8' },
+      { id: 'ball',  label: 'Bouncing Ball',              url: '/hls/ball/index.m3u8' },
+      { id: 'snow',  label: 'Snow / Noise',               url: '/hls/snow/index.m3u8' },
+    ];
 
-    let streamStart = null;
-    let segmentsLoaded = 0;
-    let lastBytes = 0;
-    let lastBytesTime = 0;
-    let reconnects = 0;
+    const grid = document.getElementById('grid');
+    const logEl = document.getElementById('log');
 
     function log(msg, cls) {
       const d = new Date().toLocaleTimeString();
-      const entry = document.createElement('div');
-      entry.className = 'entry ' + (cls || '');
-      entry.textContent = d + '  ' + msg;
-      logEl.prepend(entry);
-      if (logEl.children.length > 100) logEl.lastChild.remove();
+      const e = document.createElement('div');
+      e.className = 'entry ' + (cls || '');
+      e.textContent = d + '  ' + msg;
+      logEl.prepend(e);
+      if (logEl.children.length > 200) logEl.lastChild.remove();
     }
 
-    function setMetric(id, value, cls) {
-      const el = document.getElementById(id);
-      el.textContent = value;
-      el.className = 'value ' + (cls || 'neutral');
+    function createTile(src) {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.id = 'tile-' + src.id;
+      tile.innerHTML =
+        '<div class="tile-header">' +
+          '<span class="tile-label">' + src.label + '</span>' +
+          '<span class="tile-status connecting" id="st-' + src.id + '">CONNECTING</span>' +
+        '</div>' +
+        '<video id="v-' + src.id + '" muted autoplay playsinline></video>' +
+        '<div class="tile-metrics">' +
+          '<span>Res: <span class="val" id="res-' + src.id + '">—</span></span>' +
+          '<span>Bitrate: <span class="val" id="bps-' + src.id + '">—</span></span>' +
+          '<span>Buffer: <span class="val" id="buf-' + src.id + '">—</span></span>' +
+          '<span>Segs: <span class="val" id="seg-' + src.id + '">0</span></span>' +
+        '</div>';
+      grid.appendChild(tile);
+      return tile;
     }
 
-    function fmtDuration(s) {
-      const m = Math.floor(s / 60), sec = Math.floor(s % 60);
-      return m + ':' + String(sec).padStart(2, '0');
-    }
+    function initPlayer(src) {
+      const tile = createTile(src);
+      const video = document.getElementById('v-' + src.id);
+      const stEl = document.getElementById('st-' + src.id);
+      let segs = 0, lastBytes = 0, lastTime = 0;
 
-    function updateMetrics() {
-      // Resolution
-      if (video.videoWidth) {
-        setMetric('m-resolution', video.videoWidth + '×' + video.videoHeight, 'good');
-      }
+      if (!Hls.isSupported()) return;
 
-      // Buffer
-      if (video.buffered.length > 0) {
-        const buf = video.buffered.end(video.buffered.length - 1) - video.currentTime;
-        const cls = buf > 2 ? 'good' : buf > 0.5 ? 'warn' : 'bad';
-        setMetric('m-buffer', buf.toFixed(1) + 's', cls);
-      }
-
-      // Dropped frames
-      if (video.getVideoPlaybackQuality) {
-        const q = video.getVideoPlaybackQuality();
-        const cls = q.droppedVideoFrames === 0 ? 'good' : q.droppedVideoFrames < 10 ? 'warn' : 'bad';
-        setMetric('m-dropped', q.droppedVideoFrames + ' / ' + q.totalVideoFrames, cls);
-      }
-
-      // Uptime
-      if (streamStart) {
-        setMetric('m-uptime', fmtDuration((Date.now() - streamStart) / 1000), 'good');
-      }
-
-      // Segments
-      setMetric('m-segments', segmentsLoaded, segmentsLoaded > 0 ? 'good' : 'neutral');
-    }
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 6,
-        enableWorker: true,
-      });
-
-      hls.loadSource(hlsUrl);
+      const hls = new Hls({ liveSyncDurationCount: 3, liveMaxLatencyDurationCount: 6, enableWorker: true });
+      hls.loadSource(src.url);
       hls.attachMedia(video);
-      log('HLS.js initialized, loading source...', 'info');
-      setMetric('m-state', 'Connecting', 'warn');
 
-      hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
-        statusEl.textContent = 'Stream connected';
-        streamStart = Date.now();
-        setMetric('m-state', 'Live', 'good');
-        log('Manifest parsed, ' + data.levels.length + ' quality level(s)', 'ok');
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        stEl.textContent = 'LIVE';
+        stEl.className = 'tile-status live';
+        tile.className = 'tile active';
+        log('[' + src.id + '] Stream connected', 'ok');
         video.play();
       });
 
       hls.on(Hls.Events.FRAG_LOADED, (e, data) => {
-        segmentsLoaded++;
+        segs++;
+        document.getElementById('seg-' + src.id).textContent = segs;
         const bytes = data.frag.stats.total;
         const now = Date.now();
-        if (lastBytesTime > 0) {
-          const dt = (now - lastBytesTime) / 1000;
-          const bps = (bytes * 8) / dt;
-          const mbps = (bps / 1e6).toFixed(2);
-          const cls = bps > 5e6 ? 'good' : bps > 1e6 ? 'warn' : 'bad';
-          setMetric('m-bitrate', mbps + ' Mbps', cls);
+        if (lastTime > 0) {
+          const mbps = ((bytes * 8) / ((now - lastTime) / 1000) / 1e6).toFixed(1);
+          document.getElementById('bps-' + src.id).textContent = mbps + ' Mbps';
         }
         lastBytes = bytes;
-        lastBytesTime = now;
+        lastTime = now;
       });
 
-      hls.on(Hls.Events.LEVEL_SWITCHED, (e, data) => {
-        const level = hls.levels[data.level];
-        if (level) {
-          log('Quality: ' + level.width + '×' + level.height + ' @ ' + Math.round(level.bitrate/1000) + ' kbps', 'info');
-        }
-      });
-
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        log('Error: ' + data.type + ' / ' + data.details, 'err');
+      hls.on(Hls.Events.ERROR, (ev, data) => {
         if (data.fatal) {
-          setMetric('m-state', 'Error', 'bad');
-          streamStart = null;
-          statusEl.style.display = 'none';
-          errorEl.style.display = 'block';
-          reconnects++;
-          log('Fatal error, reconnecting (#' + reconnects + ') in 5s...', 'err');
+          stEl.textContent = 'OFFLINE';
+          stEl.className = 'tile-status offline';
+          tile.className = 'tile error';
+          log('[' + src.id + '] ' + data.details, 'err');
           setTimeout(() => {
-            errorEl.style.display = 'none';
-            statusEl.style.display = 'block';
-            statusEl.textContent = 'Reconnecting...';
-            setMetric('m-state', 'Reconnecting', 'warn');
-            hls.loadSource(hlsUrl);
+            stEl.textContent = 'CONNECTING';
+            stEl.className = 'tile-status connecting';
+            tile.className = 'tile';
+            hls.loadSource(src.url);
           }, 5000);
         }
       });
 
-      // Latency tracking
       setInterval(() => {
-        if (hls.latency !== undefined && hls.latency > 0) {
-          const cls = hls.latency < 3 ? 'good' : hls.latency < 8 ? 'warn' : 'bad';
-          setMetric('m-latency', hls.latency.toFixed(1) + 's', cls);
+        if (video.videoWidth) {
+          document.getElementById('res-' + src.id).textContent = video.videoWidth + '×' + video.videoHeight;
         }
-        updateMetrics();
+        if (video.buffered.length > 0) {
+          const buf = (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1);
+          document.getElementById('buf-' + src.id).textContent = buf + 's';
+        }
       }, 1000);
-
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = hlsUrl;
-      log('Using native HLS (Safari)', 'info');
-      video.addEventListener('loadedmetadata', () => {
-        statusEl.textContent = 'Stream connected';
-        streamStart = Date.now();
-        video.play();
-      });
-    } else {
-      statusEl.textContent = 'HLS not supported in this browser';
-      log('Browser does not support HLS', 'err');
     }
+
+    sources.forEach(initPlayer);
+    log('Multiviewer initialized with ' + sources.length + ' sources', 'info');
   </script>
 </body>
 </html>`)

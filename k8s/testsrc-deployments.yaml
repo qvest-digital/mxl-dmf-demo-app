@@ -1,0 +1,147 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testsrc-smpte
+  labels:
+    app: testsrc-smpte
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testsrc-smpte
+  template:
+    metadata:
+      labels:
+        app: testsrc-smpte
+    spec:
+      containers:
+        - name: gstreamer
+          image: restreamio/gstreamer:latest
+          command: ["gst-launch-1.0"]
+          args:
+            - "-e"
+            - "videotestsrc pattern=smpte is-live=true ! video/x-raw,width=1280,height=720,framerate=25/1 ! clockoverlay font-desc=\"Sans Bold 36\" ! x264enc tune=zerolatency bitrate=2000 key-int-max=50 ! mpegtsmux ! srtsink uri=srt://:9000 latency=500 mode=listener"
+          ports:
+            - containerPort: 9000
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: testsrc-smpte
+  labels:
+    app: testsrc-smpte
+spec:
+  type: ClusterIP
+  selector:
+    app: testsrc-smpte
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: UDP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testsrc-ball
+  labels:
+    app: testsrc-ball
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testsrc-ball
+  template:
+    metadata:
+      labels:
+        app: testsrc-ball
+    spec:
+      containers:
+        - name: gstreamer
+          image: restreamio/gstreamer:latest
+          command: ["gst-launch-1.0"]
+          args:
+            - "-e"
+            - "videotestsrc pattern=ball is-live=true ! video/x-raw,width=1280,height=720,framerate=25/1 ! clockoverlay font-desc=\"Sans Bold 36\" ! x264enc tune=zerolatency bitrate=2000 key-int-max=50 ! mpegtsmux ! srtsink uri=srt://:9000 latency=500 mode=listener"
+          ports:
+            - containerPort: 9000
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: testsrc-ball
+  labels:
+    app: testsrc-ball
+spec:
+  type: ClusterIP
+  selector:
+    app: testsrc-ball
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: UDP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testsrc-snow
+  labels:
+    app: testsrc-snow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testsrc-snow
+  template:
+    metadata:
+      labels:
+        app: testsrc-snow
+    spec:
+      containers:
+        - name: gstreamer
+          image: restreamio/gstreamer:latest
+          command: ["gst-launch-1.0"]
+          args:
+            - "-e"
+            - "videotestsrc pattern=snow is-live=true ! video/x-raw,width=1280,height=720,framerate=25/1 ! clockoverlay font-desc=\"Sans Bold 36\" ! x264enc tune=zerolatency bitrate=2000 key-int-max=50 ! mpegtsmux ! srtsink uri=srt://:9000 latency=500 mode=listener"
+          ports:
+            - containerPort: 9000
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: testsrc-snow
+  labels:
+    app: testsrc-snow
+spec:
+  type: ClusterIP
+  selector:
+    app: testsrc-snow
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: UDP

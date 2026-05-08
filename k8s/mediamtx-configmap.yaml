@@ -37,3 +37,15 @@ data:
           -c:v copy -bsf:v dump_extra
           -f rtsp rtsp://localhost:8554/mxl-stream
         runOnDemandCloseAfter: 10s
+
+      smpte:
+        source: srt://testsrc-smpte:9000?mode=caller
+        sourceOnDemand: true
+
+      ball:
+        source: srt://testsrc-ball:9000?mode=caller
+        sourceOnDemand: true
+
+      snow:
+        source: srt://testsrc-snow:9000?mode=caller
+        sourceOnDemand: true
