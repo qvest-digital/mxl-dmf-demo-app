@@ -56,7 +56,6 @@ func main() {
 <html>
 <head>
 <title>MXL Multiviewer</title>
-<script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #eee; padding: 12px; }
