@@ -40,7 +40,7 @@ func main() {
 </style>
 </head>
 <body>
-  <h1>MXL DMF Demo App 🚀 for Patrick</h1>
+  <h1>MXL DMF Demo App 🚀 for Justin</h1>
   <p>Deployed via Flux GitOps</p>
   <p class="version">Version: %s</p>
   <p class="hostname">Hostname: %s</p>
