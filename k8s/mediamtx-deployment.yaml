@@ -65,12 +65,16 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:
+            # ffmpeg subprocess transcodes 1080p v210 → H.264 via libx264 at
+            # 30 fps. Idle mediamtx itself is ~125 Mi; the ffmpeg child needs
+            # another ~300-500 Mi on top. Pod limit < ~750 Mi caused the
+            # encoder to be cgroup-OOM-killed almost immediately after start.
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 200m
+              memory: 256Mi
             limits:
-              cpu: "1"
-              memory: 512Mi
+              cpu: "2"
+              memory: 1500Mi
       volumes:
         - name: config
           configMap:
