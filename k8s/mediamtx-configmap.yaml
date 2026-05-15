@@ -40,10 +40,6 @@ data:
         mxlH264Profile: high
         mxlH264Bitrate: 5000000
 
-      smpte:
-        source: srt://testsrc-smpte:9000?mode=caller
-        sourceOnDemand: true
-
       ball:
         source: srt://testsrc-ball:9000?mode=caller
         sourceOnDemand: true
