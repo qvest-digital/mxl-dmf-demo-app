@@ -35,7 +35,14 @@ data:
       # test for the upstream PR qvest-digital/mediamtx#1 (MXL static source).
       mxl-stream-native:
         source: mxl:///domain/5fbec3b1-1b0f-417d-9059-8b94a47197ed
-        sourceOnDemand: true
+        # Keep the libmxl reader + ffmpeg encoder running 24/7. With
+        # sourceOnDemand=true, the first viewer paid ~1-2s of cold-start
+        # latency on every transition from idle to active: libx264 init +
+        # filling the first GOP + draining the stdin/stdout pipes. Costs
+        # one mostly-busy CPU + ~500 Mi RAM continuously, which is fine
+        # for this single-pod demo and matches the SRT-bridge path which
+        # is always-on by virtue of mxl-gst-sink running in the reader pod.
+        sourceOnDemand: false
         mxlH264Preset: veryfast
         mxlH264Profile: high
         mxlH264Bitrate: 5000000
