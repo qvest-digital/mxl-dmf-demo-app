@@ -48,7 +48,10 @@ jobs:
             echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and push Docker image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push demo-app image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -57,6 +60,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
+
+      # mediamtx-mxl: mediamtx fork (qvest-digital/mediamtx#1) compiled with
+      # the new mxl:// static source, built against libmxl from the
+      # qvest-digital/mxl-dmf-demo Go-binding branch (PR #14).
+      - name: Build and push mediamtx-mxl image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.mediamtx-mxl
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/mediamtx-mxl:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/mediamtx-mxl:latest
 
       - name: Install Flux CLI
         shell: bash

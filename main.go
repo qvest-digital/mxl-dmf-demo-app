@@ -94,10 +94,11 @@ func main() {
 
   <script>
     const sources = [
-      { id: 'mxl',   label: 'MXL Live (EFA/RDMA → SRT)', url: '/hls/mxl-stream/index.m3u8' },
-      { id: 'smpte', label: 'SMPTE Bars',                 url: '/hls/smpte/index.m3u8' },
-      { id: 'ball',  label: 'Bouncing Ball',              url: '/hls/ball/index.m3u8' },
-      { id: 'snow',  label: 'Snow / Noise',               url: '/hls/snow/index.m3u8' },
+      { id: 'mxl-srt',    label: 'MXL Live (EFA → mxl-gst-sink → SRT)',  url: '/hls/mxl-stream/index.m3u8' },
+      { id: 'mxl-native', label: 'MXL Live (EFA → mediamtx mxl:// PR#1)', url: '/hls/mxl-stream-native/index.m3u8' },
+      { id: 'smpte',      label: 'SMPTE Bars',                            url: '/hls/smpte/index.m3u8' },
+      { id: 'ball',       label: 'Bouncing Ball',                         url: '/hls/ball/index.m3u8' },
+      { id: 'snow',       label: 'Snow / Noise',                          url: '/hls/snow/index.m3u8' },
     ];
 
     const grid = document.getElementById('grid');

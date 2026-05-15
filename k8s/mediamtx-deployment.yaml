@@ -6,6 +6,13 @@ metadata:
     app: mediamtx
 spec:
   replicas: 1
+  # Recreate: hostPath ties the pod to a specific node, and we co-locate with
+  # the reader-media-function-efa pod which itself uses `strategy: Recreate`
+  # for the same reason. A rolling update would briefly schedule two pods
+  # against the same hostPath on the same node — harmless for the read side,
+  # but keeps the topology tidy.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: mediamtx
@@ -14,18 +21,39 @@ spec:
       labels:
         app: mediamtx
     spec:
+      # Co-locate with the reader pod so we can hostPath-share its
+      # /dev/shm/mxl-domain-reader tmpfs (provisioned in mxl-dmf-terraform via
+      # k8s/base/reader-deployment.yaml). The reader pod has its own
+      # podAntiAffinity against the writer, so this transitively pins us to the
+      # reader's node, which is necessarily distinct from the writer's node.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: reader-media-function-efa
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: mediamtx
-          image: bluenviron/mediamtx:latest-ffmpeg
+          image: ghcr.io/qvest-digital/mxl-dmf-demo-app/mediamtx-mxl:IMAGE_TAG
           ports:
-            - containerPort: 8889
-              name: webrtc
             - containerPort: 8888
               name: hls
+            - containerPort: 8889
+              name: webrtc
           volumeMounts:
             - name: config
               mountPath: /mediamtx.yml
               subPath: mediamtx.yml
+            - name: mxl-domain
+              mountPath: /domain
+              # Mounted read-write because libmxl's reader-side acquires a
+              # session slot in the flow's shared header (futex / atomics on
+              # the mmap'd file). The reader-container in the reader pod
+              # retains exclusive write access to the data payload via its
+              # EFA-registered memory region; this mount only competes for
+              # the reader-table portion of the shared header.
+              readOnly: false
           livenessProbe:
             tcpSocket:
               port: 8888
@@ -47,3 +75,10 @@ spec:
         - name: config
           configMap:
             name: mediamtx-config
+        # Same physical tmpfs as the reader pod's /domain. Cross-pod sharing is
+        # only possible because the reader pod uses hostPath (not emptyDir) for
+        # its domain-volume — see mxl-dmf-terraform PR #120.
+        - name: mxl-domain
+          hostPath:
+            path: /dev/shm/mxl-domain-reader
+            type: DirectoryOrCreate

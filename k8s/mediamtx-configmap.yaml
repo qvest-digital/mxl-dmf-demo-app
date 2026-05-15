@@ -22,9 +22,23 @@ data:
     srtAddress: :8890
 
     paths:
+      # Existing path: pulls H.264-over-SRT from the reader pod's
+      # `mxl-gst-sink` (encoded by the reader-container from MXL grains).
+      # Kept so the showcase can demonstrate the original SRT-bridge pipeline
+      # side-by-side with the native one below.
       mxl-stream:
         source: srt://reader-media-service:5000?mode=caller
         sourceOnDemand: true
+
+      # New path: mediamtx reads MXL grains zero-copy from the same /domain
+      # tmpfs the reader-container fills via EFA RDMA. This is the integration
+      # test for the upstream PR qvest-digital/mediamtx#1 (MXL static source).
+      mxl-stream-native:
+        source: mxl:///domain/5fbec3b1-1b0f-417d-9059-8b94a47197ed
+        sourceOnDemand: true
+        mxlH264Preset: veryfast
+        mxlH264Profile: high
+        mxlH264Bitrate: 5000000
 
       smpte:
         source: srt://testsrc-smpte:9000?mode=caller

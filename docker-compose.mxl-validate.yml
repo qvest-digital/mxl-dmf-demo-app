@@ -1,0 +1,66 @@
+# Local validation of qvest-digital/mediamtx#1 (MXL static source).
+#
+# producer  : mxl-gst-testsrc writes a v210 video flow into a tmpfs MXL domain
+# mediamtx  : reads that flow via the new mxl:// static source, transcodes to
+#             H.264, exposes RTSP/HLS
+#
+# Run:
+#   docker compose -f docker-compose.mxl-validate.yml up --build
+#
+# Verify:
+#   ffplay -fflags nobuffer rtsp://localhost:8554/mxl_test
+#   open http://localhost:8888/mxl_test/  (HLS)
+
+name: mediamtx-mxl-validate
+
+volumes:
+  mxl-domain:
+    driver: local
+    driver_opts:
+      device: none
+      type: tmpfs
+      o: nosuid,strictatime,uid=1000,gid=1000,mode=0755
+
+services:
+  producer:
+    image: mxl-producer:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.mediamtx-mxl
+      target: producer
+    volumes:
+      - type: volume
+        source: mxl-domain
+        target: /mxl-domain
+      - type: bind
+        source: ./flow-configs
+        target: /flow-configs
+        read_only: true
+    command:
+      - -d
+      - /mxl-domain
+      - -v
+      - /flow-configs/flow-video-v210.json
+      - -p
+      - smpte
+      - -t
+      - MXL via mediamtx
+
+  mediamtx:
+    image: mediamtx-mxl:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.mediamtx-mxl
+    depends_on:
+      - producer
+    volumes:
+      - type: volume
+        source: mxl-domain
+        target: /mxl-domain
+      - type: bind
+        source: ./mediamtx-mxl.yml
+        target: /mediamtx.yml
+        read_only: true
+    ports:
+      - "8554:8554"   # RTSP
+      - "8888:8888"   # HLS
