@@ -1,0 +1,92 @@
+---
+# Pre-recorded video loop, formatted to look like a 24/7 broadcast channel.
+# Mirrors the pattern used by the testsrc-* deployments: ffmpeg listens on
+# SRT 9000, mediamtx pulls in caller mode (configured in
+# mediamtx-configmap.yaml).
+#
+# Source MP4 is Sintel (Blender Foundation, CC-BY 3.0). Hosted in the public
+# S3 bucket mxl-dmf-demo-content-eu-central-1 (eu-central-1) so the loop
+# survives nightly cluster recreates without depending on third-party CDNs.
+#
+# initContainer caches the file once per pod; ffmpeg then loops indefinitely
+# with overlay graphics (channel logo, clock) drawn over the video for the
+# live-TV look.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-sintel
+  labels:
+    app: loop-sintel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loop-sintel
+  template:
+    metadata:
+      labels:
+        app: loop-sintel
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/sintel.mp4
+              if [ -s "$FILE" ]; then
+                echo "cached, skipping fetch"
+                exit 0
+              fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/sintel-1024-surround.mp4"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/sintel.mp4 \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='SINTEL 24':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports:
+            - containerPort: 9000
+              protocol: UDP
+              name: srt
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+              readOnly: true
+          resources:
+            requests:
+              cpu: 300m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-sintel
+  labels:
+    app: loop-sintel
+spec:
+  type: ClusterIP
+  selector:
+    app: loop-sintel
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: UDP
+      name: srt

@@ -8,3 +8,4 @@ resources:
   - mediamtx-deployment.yaml
   - mediamtx-service.yaml
   - testsrc-deployments.yaml
+  - loop-deployments.yaml

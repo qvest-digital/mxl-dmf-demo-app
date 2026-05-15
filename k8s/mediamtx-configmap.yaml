@@ -51,3 +51,10 @@ data:
       snow:
         source: srt://testsrc-snow:9000?mode=caller
         sourceOnDemand: true
+
+      # 24/7 broadcast-style loop of Sintel (Blender Foundation, CC-BY 3.0).
+      # Source MP4 cached from an S3 bucket on first pod start; ffmpeg adds a
+      # channel logo + clock overlay before pushing to mediamtx over SRT.
+      sintel:
+        source: srt://loop-sintel:9000?mode=caller
+        sourceOnDemand: true
