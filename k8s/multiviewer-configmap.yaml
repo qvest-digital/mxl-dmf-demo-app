@@ -17,7 +17,13 @@ data:
     :8080 {
       encode gzip
 
-      respond /healthz "ok" 200
+      # handle / handle_path blocks are mutually exclusive and run in source
+      # order, so this catches /healthz before the catch-all hits it. Plain
+      # `respond /healthz` would be reordered late by Caddy and swallowed
+      # by the file_server below.
+      handle /healthz {
+        respond "ok" 200
+      }
 
       handle_path /hls/* {
         reverse_proxy http://localhost:8888 {
