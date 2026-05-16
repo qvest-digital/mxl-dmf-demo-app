@@ -10,7 +10,7 @@
 #   3. runtime : debian-slim + ffmpeg + libmxl + mediamtx
 #
 # Build (Apple Silicon native):
-#   docker buildx build --platform linux/arm64 -t mediamtx-mxl:dev -f Dockerfile.mediamtx-mxl .
+#   docker buildx build --platform linux/arm64 -t mediamtx-mxl:dev .
 
 ARG DEBIAN_RELEASE=trixie-slim
 

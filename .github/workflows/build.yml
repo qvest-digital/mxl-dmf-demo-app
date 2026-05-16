@@ -47,7 +47,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.mediamtx-mxl
           target: runtime
           platforms: linux/amd64
           push: true
