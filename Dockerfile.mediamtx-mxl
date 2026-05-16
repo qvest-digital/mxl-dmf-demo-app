@@ -106,31 +106,7 @@ RUN go build -o /out/mediamtx .
 # Smoke-check: dynamic linkage.
 RUN ldd /out/mediamtx | grep -E 'libmxl|not found' || true
 
-# -------- 3a. producer (mxl-gst-testsrc) runtime ----------
-FROM debian:${DEBIAN_RELEASE} AS producer
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates dumb-init \
-      libspdlog1.15 libfmt10 \
-      gstreamer1.0-plugins-good gstreamer1.0-plugins-base gstreamer1.0-x \
-      libpango-1.0-0 libpangocairo-1.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# libmxl runtime libs + mxl-gst-testsrc binary.
-COPY --from=libmxl-builder /usr/lib/ /tmp/libmxl-stage/
-COPY --from=libmxl-builder /usr/bin/mxl-gst-testsrc /usr/bin/mxl-gst-testsrc
-COPY --from=libmxl-builder /usr/bin/mxl-info        /usr/bin/mxl-info
-RUN set -eux; \
-    for d in /usr/lib/aarch64-linux-gnu /usr/lib/x86_64-linux-gnu /usr/lib; do \
-      if [ -d "$d" ]; then DEST="$d"; break; fi; \
-    done; \
-    find /tmp/libmxl-stage -name 'libmxl*.so*' -exec cp -a {} "$DEST/" \; ; \
-    rm -rf /tmp/libmxl-stage; \
-    ldconfig
-
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/bin/mxl-gst-testsrc"]
-
-# -------- 3b. mediamtx runtime ----------
+# -------- 3. mediamtx runtime ----------
 FROM debian:${DEBIAN_RELEASE} AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

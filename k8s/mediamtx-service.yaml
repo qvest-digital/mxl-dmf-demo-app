@@ -9,9 +9,9 @@ spec:
   selector:
     app: mediamtx
   ports:
+    - name: http
+      port: 80
+      targetPort: 8080
     - name: webrtc
       port: 8889
       targetPort: 8889
-    - name: hls
-      port: 8888
-      targetPort: 8888

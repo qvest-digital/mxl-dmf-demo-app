@@ -75,14 +75,64 @@ spec:
             limits:
               cpu: "2"
               memory: 1500Mi
+
+        # Caddy sidecar replaces the (now deleted) demo-app Go binary: serves
+        # the multiviewer HTML at /, reverse-proxies HLS at /hls/* to mediamtx
+        # on localhost, and rewrites mediamtx's cookieCheck 302 Location
+        # headers so the browser stays on the public origin.
+        - name: caddy
+          image: caddy:2-alpine
+          args: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: caddy-conf
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: caddy-www
+              mountPath: /srv
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
       volumes:
         - name: config
           configMap:
             name: mediamtx-config
         # Same physical tmpfs as the reader pod's /domain. Cross-pod sharing is
         # only possible because the reader pod uses hostPath (not emptyDir) for
-        # its domain-volume — see mxl-dmf-terraform PR #120.
+        # its domain-volume — see mxl-dmf-terraform PR #122.
         - name: mxl-domain
           hostPath:
             path: /dev/shm/mxl-domain-reader
             type: DirectoryOrCreate
+        - name: caddy-conf
+          configMap:
+            name: multiviewer
+            items:
+              - key: Caddyfile
+                path: Caddyfile
+        - name: caddy-www
+          configMap:
+            name: multiviewer
+            items:
+              - key: index.html
+                path: index.html

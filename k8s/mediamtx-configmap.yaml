@@ -15,6 +15,15 @@ data:
     hlsAddress: :8888
     hlsAlwaysRemux: true
     hlsVariant: lowLatency
+    # Tight muxer state so clients land near the live edge. Default
+    # hlsSegmentCount=7 with ~1s segments meant up to 7s of stale
+    # segments could be served first; combined with ffmpeg back-pressure
+    # on the native path that produced visible multi-minute drift between
+    # the two MXL tiles. Keep just enough history for HLS-LL part
+    # rewind without trapping the player in the past.
+    hlsSegmentCount: 3
+    hlsSegmentDuration: 1s
+    hlsPartDuration: 200ms
 
     rtsp: false
     rtmp: false
