@@ -167,9 +167,13 @@ namespace
             std::memcpy(map.data, payload, info.grainSize);
             ::gst_buffer_unmap(buf, &map);
 
-            auto pts = ::mxlIndexToTimestamp(&rate, cursor.requestedIndex);
-            GST_BUFFER_PTS(buf) = pts;
-            GST_BUFFER_DTS(buf) = pts;
+            // Don't set PTS — appsrc has do-timestamp=true so gst stamps
+            // each buffer with the pipeline running clock on push. mxl's
+            // timestamps are a monotonic ns counter from a different
+            // epoch, and compositor (which uses pipeline running-time as
+            // its reference) would queue everything as "future" and never
+            // mix it onto its canvas. Keep duration so the compositor can
+            // estimate cadence.
             GST_BUFFER_DURATION(buf) =
                 ::gst_util_uint64_scale_int(GST_SECOND, rate.denominator, rate.numerator);
 
@@ -280,7 +284,7 @@ int main(int argc, char** argv)
     {
         pipelineDesc +=
             "appsrc name=src" + std::to_string(i) +
-            " is-live=true format=time do-timestamp=false "
+            " is-live=true format=time do-timestamp=true "
             " max-bytes=20971520 block=true "
             // Per-tile leaky queue absorbs short scheduler jitter without
             // unbounded growth. 3 buffers ≈ 100 ms at 30 fps.
@@ -354,6 +358,27 @@ int main(int argc, char** argv)
         w.thread = std::thread{worker_loop, &w};
     }
 
+    // Diagnostic ticker: every 5s, report per-flow push/miss counters.
+    // Without this it's impossible to tell whether the pipeline is silent
+    // because workers aren't getting grains, or because grains are being
+    // pushed but dropped downstream.
+    std::thread stats{[&workers]() {
+        std::uint64_t last[16] = {0};
+        while (!g_exit.load(std::memory_order_relaxed))
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::string line = "STATS";
+            for (std::size_t i = 0; i < workers.size(); ++i)
+            {
+                auto cur = workers[i].framesPushed.load();
+                auto delta = cur - last[i];
+                last[i] = cur;
+                line += " [" + std::to_string(i) + "]=" + std::to_string(delta) + "fps";
+            }
+            g_print("%s\n", line.c_str());
+        }
+    }};
+
     // Block on bus until ERROR / EOS / SIGTERM.
     auto* bus = ::gst_element_get_bus(pipeline);
     while (!g_exit.load(std::memory_order_relaxed))
@@ -395,6 +420,7 @@ int main(int argc, char** argv)
     ::gst_object_unref(bus);
 
     g_print("Shutting down workers...\n");
+    if (stats.joinable()) stats.join();
     for (auto& w : workers)
     {
         if (w.thread.joinable()) w.thread.join();
