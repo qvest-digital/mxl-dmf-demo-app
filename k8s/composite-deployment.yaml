@@ -86,14 +86,20 @@ spec:
               # explicit read-only reader API.
               readOnly: false
           resources:
-            # One x264 ultrafast encode + 8 livecopy memcpys + compositor
-            # mixing. Steady state ~3 CPU, peak during keyframes ~6 CPU.
+            # Each MXL flow reader mmaps the entire grain ring (default
+            # ring depth × ~5 MB per 1080p v210 grain ≈ 25-40 MB per
+            # flow). Eight flows × 40 MB = ~320 MB just for the mmaps,
+            # plus gst pipeline buffers (8 appsrcs queueing 2-3 raw
+            # buffers each = another ~80 MB), plus x264's working
+            # frames + the compositor canvas. 3 Gi tripped OOM almost
+            # immediately. 8 Gi gives headroom for the worst-case
+            # keyframe burst without leaving the node short.
             requests:
               cpu: "2"
-              memory: 1Gi
+              memory: 2Gi
             limits:
-              cpu: "6"
-              memory: 3Gi
+              cpu: "8"
+              memory: 8Gi
       volumes:
         # Same physical tmpfs the reader-container writes into. hostPath
         # mount in reader-deployment.yaml + mediamtx-deployment.yaml gives
