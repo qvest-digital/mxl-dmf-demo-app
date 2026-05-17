@@ -90,3 +90,167 @@ spec:
       targetPort: 9000
       protocol: UDP
       name: srt
+---
+# FrOSCon 2024 — "init" (opening, Hinrikus Wolf), CC-BY via media.ccc.de.
+# Same loop pattern as loop-sintel: cached MP4 → ffmpeg → SRT listener.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-froscon-1
+  labels:
+    app: loop-froscon-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loop-froscon-1
+  template:
+    metadata:
+      labels:
+        app: loop-froscon-1
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/froscon-init.mp4
+              if [ -s "$FILE" ]; then
+                echo "cached, skipping fetch"
+                exit 0
+              fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/froscon2024-init.mp4"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/froscon-init.mp4 \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='FROSCON 24':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports:
+            - containerPort: 9000
+              protocol: UDP
+              name: srt
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+              readOnly: true
+          resources:
+            requests:
+              cpu: 300m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-froscon-1
+  labels:
+    app: loop-froscon-1
+spec:
+  type: ClusterIP
+  selector:
+    app: loop-froscon-1
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: UDP
+      name: srt
+---
+# FrOSCon 2024 — "Day 2 Ops" Linux for Kubernetes and Container Workloads,
+# CC-BY via media.ccc.de. Same loop pattern as above.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-froscon-2
+  labels:
+    app: loop-froscon-2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loop-froscon-2
+  template:
+    metadata:
+      labels:
+        app: loop-froscon-2
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/froscon-day2ops.mp4
+              if [ -s "$FILE" ]; then
+                echo "cached, skipping fetch"
+                exit 0
+              fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/froscon2024-day2ops-k8s.mp4"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/froscon-day2ops.mp4 \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='FROSCON 24':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports:
+            - containerPort: 9000
+              protocol: UDP
+              name: srt
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+              readOnly: true
+          resources:
+            requests:
+              cpu: 300m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-froscon-2
+  labels:
+    app: loop-froscon-2
+spec:
+  type: ClusterIP
+  selector:
+    app: loop-froscon-2
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: UDP
+      name: srt

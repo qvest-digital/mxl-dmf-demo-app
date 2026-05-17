@@ -6,5 +6,4 @@ resources:
   - mediamtx-deployment.yaml
   - mediamtx-service.yaml
   - multiviewer-configmap.yaml
-  - testsrc-deployments.yaml
   - loop-deployments.yaml
