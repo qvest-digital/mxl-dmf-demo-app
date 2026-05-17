@@ -1,4 +1,9 @@
-name: Build & Push
+name: Push manifests
+
+# This repo no longer builds any image. mediamtx-mxl is published by
+# qvest-digital/mediamtx CI (feature/mxl-static-source); libmxl is published
+# by qvest-digital/mxl-dmf-demo CI. All we do here is render the k8s
+# manifests and push them as an OCI artifact for Flux to reconcile.
 
 on:
   push:
@@ -11,10 +16,9 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  push-manifests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,47 +31,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # mediamtx-mxl: mediamtx fork (qvest-digital/mediamtx#1) compiled with
-      # the new mxl:// static source, built against libmxl from the
-      # qvest-digital/mxl-dmf-demo Go-binding branch (PR #14).
-      - name: Build and push mediamtx-mxl image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: runtime
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/mediamtx-mxl:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/mediamtx-mxl:latest
-
       - name: Install Flux CLI
         shell: bash
         run: curl -s https://fluxcd.io/install.sh | sudo bash
 
-      - name: Render k8s manifests with image tag
+      - name: Stage manifests
         shell: bash
         run: |
-          IMAGE_TAG="${{ steps.version.outputs.version }}"
           mkdir -p /tmp/k8s-rendered
-          for f in k8s/*.yaml; do
-            sed "s|IMAGE_TAG|${IMAGE_TAG}|g" "$f" > "/tmp/k8s-rendered/$(basename $f)"
-          done
-          echo "=== Rendered manifests ==="
-          cat /tmp/k8s-rendered/*.yaml
+          cp k8s/*.yaml /tmp/k8s-rendered/
+          echo "=== Manifests ==="
+          ls /tmp/k8s-rendered/
 
       - name: Push k8s manifests as OCI artifact
         shell: bash
