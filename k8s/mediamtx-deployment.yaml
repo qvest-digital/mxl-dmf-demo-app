@@ -42,7 +42,7 @@ spec:
           # Upstream image now built + pushed by qvest-digital/mediamtx CI on
           # the feature/mxl-static-source branch (workflow: mxl-image.yml).
           # No more local Dockerfile here — this repo only renders manifests.
-          image: ghcr.io/qvest-digital/mediamtx-mxl:latest
+          image: ghcr.io/qvest-digital/mxl-dmf-demo-app/mediamtx-mxl:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8888
