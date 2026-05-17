@@ -30,54 +30,79 @@ paths:
   # mediamtx reads MXL grains zero-copy from the same /domain
   # tmpfs the reader-container fills via EFA RDMA. This is the integration
   # test for the upstream PR qvest-digital/mediamtx#1 (MXL static source).
+  #
+  # Eight MXL paths corresponding to the eight UUIDs in the reader/writer
+  # deployments' MXL_FLOW_IDS env var. The first one is the legacy
+  # single-flow demo (kept always-on); the others are added for the 8-tile
+  # MXL showcase and stay on-demand so they don't burn CPU until a viewer
+  # actually requests them — and so they fail closed (404 → tile OFFLINE)
+  # in the window before the terraform-managed reader/writer pods are
+  # updated to multi-flow mode.
   mxl-stream-native:
     source: mxl:///domain/5fbec3b1-1b0f-417d-9059-8b94a47197ed
     # Keep the libmxl reader + ffmpeg encoder running 24/7. With
     # sourceOnDemand=true, the first viewer paid ~1-2s of cold-start
     # latency on every transition from idle to active: libx264 init +
-    # filling the first GOP + draining the stdin/stdout pipes. Costs
-    # one mostly-busy CPU + ~500 Mi RAM continuously, which is fine
-    # for this single-pod demo and matches the SRT-bridge path which
-    # is always-on by virtue of mxl-gst-sink running in the reader pod.
+    # filling the first GOP + draining the stdin/stdout pipes.
     sourceOnDemand: false
     mxlH264Preset: veryfast
     mxlH264Profile: high
     mxlH264Bitrate: 5000000
 
-  # 24/7 broadcast-style loop of Sintel (Blender Foundation, CC-BY 3.0).
-  # Source MP4 cached from an S3 bucket on first pod start; ffmpeg adds a
-  # channel logo + clock overlay before pushing to mediamtx over SRT.
+  mxl-stream-2:
+    source: mxl:///domain/a1000000-0000-0000-0000-000000000001
+    sourceOnDemand: true
+    mxlH264Preset: ultrafast
+    mxlH264Profile: high
+    mxlH264Bitrate: 3000000
+
+  mxl-stream-3:
+    source: mxl:///domain/a1000000-0000-0000-0000-000000000002
+    sourceOnDemand: true
+    mxlH264Preset: ultrafast
+    mxlH264Profile: high
+    mxlH264Bitrate: 3000000
+
+  mxl-stream-4:
+    source: mxl:///domain/a1000000-0000-0000-0000-000000000003
+    sourceOnDemand: true
+    mxlH264Preset: ultrafast
+    mxlH264Profile: high
+    mxlH264Bitrate: 3000000
+
+  mxl-stream-5:
+    source: mxl:///domain/a1000000-0000-0000-0000-000000000004
+    sourceOnDemand: true
+    mxlH264Preset: ultrafast
+    mxlH264Profile: high
+    mxlH264Bitrate: 3000000
+
+  mxl-stream-6:
+    source: mxl:///domain/a1000000-0000-0000-0000-000000000005
+    sourceOnDemand: true
+    mxlH264Preset: ultrafast
+    mxlH264Profile: high
+    mxlH264Bitrate: 3000000
+
+  mxl-stream-7:
+    source: mxl:///domain/a1000000-0000-0000-0000-000000000006
+    sourceOnDemand: true
+    mxlH264Preset: ultrafast
+    mxlH264Profile: high
+    mxlH264Bitrate: 3000000
+
+  mxl-stream-8:
+    source: mxl:///domain/a1000000-0000-0000-0000-000000000007
+    sourceOnDemand: true
+    mxlH264Preset: ultrafast
+    mxlH264Profile: high
+    mxlH264Bitrate: 3000000
+
+  # SRT-bridge baseline: Sintel (Blender Foundation, CC-BY 3.0) looped via
+  # ffmpeg → SRT → mediamtx. Kept as the comparison reference for the
+  # MXL-vs-SRT latency story in the multiviewer DRIFT readout — pulling
+  # this would erase the only non-MXL tile and leave the metric without a
+  # control group.
   sintel:
     source: srt://loop-sintel:9000?mode=caller
-    sourceOnDemand: true
-
-  # 24/7 broadcast-style loops of FrOSCon 2024 talks (CC-BY,
-  # media.ccc.de). Source MP4s cached from S3 on first pod start.
-  froscon-1:
-    source: srt://loop-froscon-1:9000?mode=caller
-    sourceOnDemand: true
-
-  froscon-2:
-    source: srt://loop-froscon-2:9000?mode=caller
-    sourceOnDemand: true
-
-  # Blender open movies (CC-BY) + CCC + NASA, same loop pattern.
-  bbb:
-    source: srt://loop-bbb:9000?mode=caller
-    sourceOnDemand: true
-
-  tears:
-    source: srt://loop-tears:9000?mode=caller
-    sourceOnDemand: true
-
-  caminandes:
-    source: srt://loop-caminandes:9000?mode=caller
-    sourceOnDemand: true
-
-  c3-gone:
-    source: srt://loop-c3-gone:9000?mode=caller
-    sourceOnDemand: true
-
-  nasa-iss:
-    source: srt://loop-nasa-iss:9000?mode=caller
     sourceOnDemand: true

@@ -16,6 +16,8 @@
   .tile { position: relative; background: #000; border: 1px solid transparent; overflow: hidden; }
   .tile.live  { border-color: #007a00; }
   .tile.err   { border-color: #aa0000; }
+  .tile.kind-srt .num::after { content: '  SRT'; color: #ffaa00; font-size: 9px; margin-left: 4px; }
+  .tile.kind-mxl .num::after { content: '  MXL'; color: #00aaff; font-size: 9px; margin-left: 4px; }
   .tile video { position: absolute; top: 0; left: 0; width: 100%; height: calc(100% - 18px); background: #000; object-fit: contain; }
   .num   { position: absolute; top: 2px; left: 4px; font-weight: bold; color: #fff; text-shadow: 1px 1px 0 #000; font-size: 12px; z-index: 2; }
   .stat  { position: absolute; top: 2px; right: 4px; font-weight: bold; font-size: 10px; padding: 0 4px; z-index: 2; text-shadow: 1px 1px 0 #000; }
@@ -33,9 +35,9 @@
   <div id="bar">
     <div class="l"><span>MXL DMF MULTIVIEWER</span></div>
     <div class="m">
-      <span>MIN <b id="m-min">--</b> ms</span>
-      <span>MAX <b id="m-max">--</b> ms</span>
-      <span>DRIFT <b id="m-drift">--</b> ms</span>
+      <span>MXL DRIFT <b id="m-drift">--</b> ms</span>
+      <span>SRT vs MXL <b id="m-srt-delta">--</b> ms</span>
+      <span>MXL <b id="m-min">--</b>/<b id="m-max">--</b> ms</span>
     </div>
     <div class="r"><span id="clk">--:--:--</span></div>
   </div>
@@ -49,16 +51,21 @@
     // wall-clock time at which the visible frame was muxed, then diff against
     // Date.now() for end-to-end latency. Drift = max - min across all LIVE
     // tiles; this is the metric that matters for multiviewer sync.
+    // 3x3 grid: tiles 1-8 are MXL flows (cross-node EFA, libmxl zero-copy
+    // read in mediamtx), tile 9 is the SRT-bridge Sintel loop kept as a
+    // control baseline. The latency DRIFT metric in the header is the
+    // headline story: across the 8 MXL tiles it should converge to near
+    // zero (single common path), while the SRT tile sits visibly higher.
     var sources = [
-      { id: 'mxl',        n: 1, label: 'MXL LIVE',         url: '/hls/mxl-stream-native/index.m3u8' },
-      { id: 'sintel',     n: 2, label: 'SINTEL',           url: '/hls/sintel/index.m3u8' },
-      { id: 'froscon-1',  n: 3, label: 'FROSCON INIT',     url: '/hls/froscon-1/index.m3u8' },
-      { id: 'froscon-2',  n: 4, label: 'FROSCON OPS',      url: '/hls/froscon-2/index.m3u8' },
-      { id: 'bbb',        n: 5, label: 'BIG BUCK BUNNY',   url: '/hls/bbb/index.m3u8' },
-      { id: 'tears',      n: 6, label: 'TEARS OF STEEL',   url: '/hls/tears/index.m3u8' },
-      { id: 'caminandes', n: 7, label: 'LLAMA DRAMA',      url: '/hls/caminandes/index.m3u8' },
-      { id: 'c3-gone',    n: 8, label: '33C3 KEYNOTE',     url: '/hls/c3-gone/index.m3u8' },
-      { id: 'nasa-iss',   n: 9, label: 'NASA EARTH',       url: '/hls/nasa-iss/index.m3u8' }
+      { id: 'mxl-1', n: 1, label: 'MXL 1 NATIVE', url: '/hls/mxl-stream-native/index.m3u8', kind: 'mxl' },
+      { id: 'mxl-2', n: 2, label: 'MXL 2 SNOW',   url: '/hls/mxl-stream-2/index.m3u8',      kind: 'mxl' },
+      { id: 'mxl-3', n: 3, label: 'MXL 3 BALL',   url: '/hls/mxl-stream-3/index.m3u8',      kind: 'mxl' },
+      { id: 'mxl-4', n: 4, label: 'MXL 4 SMPT75', url: '/hls/mxl-stream-4/index.m3u8',      kind: 'mxl' },
+      { id: 'mxl-5', n: 5, label: 'MXL 5 ZPLATE', url: '/hls/mxl-stream-5/index.m3u8',      kind: 'mxl' },
+      { id: 'mxl-6', n: 6, label: 'MXL 6 GAMUT',  url: '/hls/mxl-stream-6/index.m3u8',      kind: 'mxl' },
+      { id: 'mxl-7', n: 7, label: 'MXL 7 PWHEEL', url: '/hls/mxl-stream-7/index.m3u8',      kind: 'mxl' },
+      { id: 'mxl-8', n: 8, label: 'MXL 8 SPOKES', url: '/hls/mxl-stream-8/index.m3u8',      kind: 'mxl' },
+      { id: 'srt',   n: 9, label: 'SRT SINTEL',   url: '/hls/sintel/index.m3u8',            kind: 'srt' }
     ];
 
     var grid = document.getElementById('grid');
@@ -73,7 +80,7 @@
 
     function mkTile(s){
       var t = document.createElement('div');
-      t.className = 'tile';
+      t.className = 'tile kind-' + s.kind;
       t.id = 't-'+s.id;
       t.innerHTML =
         '<span class="num">'+s.n+'</span>' +
@@ -103,21 +110,47 @@
     }
 
     function updateHeader(){
-      var vals = sources.map(function(s){ return state[s.id].live ? state[s.id].lat : null; }).filter(function(v){ return v != null; });
+      var mxlVals = sources.filter(function(s){ return s.kind === 'mxl' && state[s.id].live; })
+                           .map(function(s){ return state[s.id].lat; })
+                           .filter(function(v){ return v != null; });
+      var srtVals = sources.filter(function(s){ return s.kind === 'srt' && state[s.id].live; })
+                           .map(function(s){ return state[s.id].lat; })
+                           .filter(function(v){ return v != null; });
       var min = document.getElementById('m-min');
       var max = document.getElementById('m-max');
       var dft = document.getElementById('m-drift');
-      var bar = document.querySelector('#bar .m');
-      if (!vals.length) { min.textContent = '--'; max.textContent = '--'; dft.textContent = '--'; bar.className = 'm'; return; }
-      var mn = Math.min.apply(null, vals);
-      var mx = Math.max.apply(null, vals);
-      var dr = mx - mn;
-      min.textContent = mn.toFixed(0);
-      max.textContent = mx.toFixed(0);
-      dft.textContent = dr.toFixed(0);
-      bar.querySelectorAll('span').forEach(function(sp){ sp.className = ''; });
-      // Drift is the headline metric; flag it.
-      bar.querySelectorAll('span')[2].className = (dr < 500 ? '' : (dr < 1500 ? 'warn' : 'bad'));
+      var srtDelta = document.getElementById('m-srt-delta');
+      var spans = document.querySelectorAll('#bar .m span');
+      spans.forEach(function(sp){ sp.className = ''; });
+
+      if (!mxlVals.length) {
+        min.textContent = '--'; max.textContent = '--'; dft.textContent = '--';
+      } else {
+        var mn = Math.min.apply(null, mxlVals);
+        var mx = Math.max.apply(null, mxlVals);
+        var dr = mx - mn;
+        min.textContent = mn.toFixed(0);
+        max.textContent = mx.toFixed(0);
+        dft.textContent = dr.toFixed(0);
+        // Drift is the headline MXL metric — tight = the fabric is doing its job.
+        spans[0].className = (dr < 500 ? '' : (dr < 1500 ? 'warn' : 'bad'));
+      }
+
+      if (!srtVals.length || !mxlVals.length) {
+        srtDelta.textContent = '--';
+      } else {
+        // Use median MXL latency as the comparison anchor; mean would be
+        // skewed by a single tile flapping. Median of small N is just
+        // sorted middle.
+        var sorted = mxlVals.slice().sort(function(a,b){ return a-b; });
+        var med = sorted[Math.floor(sorted.length/2)];
+        var srtMed = srtVals.slice().sort(function(a,b){ return a-b; })[Math.floor(srtVals.length/2)];
+        var delta = srtMed - med;
+        srtDelta.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(0);
+        // Positive delta = SRT is slower (expected). Negative = SRT is
+        // somehow faster (unexpected; flag it).
+        spans[1].className = (delta >= 0 ? '' : 'bad');
+      }
     }
 
     function play(s){
