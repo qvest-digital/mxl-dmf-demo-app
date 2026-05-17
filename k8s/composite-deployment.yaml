@@ -1,18 +1,26 @@
 ---
-# Server-side 3x3 mosaic compositor. Pulls all nine tile flows back from
-# mediamtx via SRT (in-cluster, sub-100ms loopback), scales each to 426x238,
-# xstacks into a 1280x720 grid with burned-in tile labels + global clock,
-# and pushes the mosaic to mediamtx's `composite` path. The multiviewer
-# landing page then plays a single HLS stream instead of nine parallel
-# hls.js instances — the demo becomes one shareable URL that works in any
-# browser, iframe, or projector with no client-side rendering cost.
+# Multi-flow MXL compositor. Replaces the previous ffmpeg-RTSP pull-9-tiles
+# pod with a single process that reads all eight MXL flows directly from
+# /dev/shm via libmxl (zero-copy, no per-flow decode pass), composites them
+# with a GStreamer compositor element, encodes the mosaic once with x264,
+# and pushes the result to mediamtx via RTSP.
 #
-# Latency note: the burned-in clock in this mosaic shows the compositor's
-# wall-clock at composite time, which is upstream of the HLS muxer's
-# ~2-3s buffer. Viewers see the picture 3s late but the *number on the
-# picture* is from the moment the frame entered the HLS pipeline — that's
-# the gap to measure when comparing transport latencies (MXL vs SRT) in
-# a later iteration that also burns per-tile pipeline timestamps.
+# Why this matters: under the old design every flow was decoded out of
+# mediamtx's HLS-bound H.264 encoder, and each path's encoder had its own
+# backlog — that's what caused the per-tile burned-in clocks to disagree
+# by seconds. Reading raw MXL grains directly bypasses all of that, so the
+# clocks burned in by the writer pod (mxl-gst-testsrc's clockoverlay) reach
+# the compositor with the same age across every flow. Spread shrinks from
+# "seconds" (encoder backlog) to "microseconds" (EFA jitter + ring-buffer
+# read position).
+#
+# Sintel (SRT-only) is intentionally NOT included in this v1 — adding it
+# means decoding an H.264 stream alongside the raw MXL pipeline, which
+# brings the encoder-backlog problem back for that one tile. We'll wire it
+# in a follow-up that either pushes sintel as a 9th MXL flow or accepts
+# the asymmetry knowingly. Multiviewer landing page still loads
+# /hls/composite/index.m3u8 — same URL, just 8 tiles in a 3x3 grid with
+# the bottom-right slot dark for now.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,94 +37,68 @@ spec:
       labels:
         app: composite
     spec:
-      # Same-node as mediamtx (which is same-node as the reader) so the
-      # nine SRT inputs are loopback inside the pod network — avoids
-      # pushing 9 × 3 Mbps = ~27 Mbps across the cluster network back
-      # and forth.
+      # Co-located with mediamtx → reader → /dev/shm/mxl-domain-reader. The
+      # hostPath mount below shares the exact same RDMA-backed tmpfs region
+      # the reader-container writes into.
       affinity:
         podAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
-                  app: mediamtx
+                  app: reader-media-function-efa
               topologyKey: kubernetes.io/hostname
-      # Mediamtx (and therefore this pod's affinity target) lives on the
-      # reader's EFA-tainted node — needs the toleration to schedule.
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
           effect: "NoSchedule"
+      # GHCR image — same registry+auth as mediamtx-mxl, so reuse the
+      # ExternalSecret-rendered secret.
+      imagePullSecrets:
+        - name: demo-app-ghcr-pull
       containers:
-        - name: ffmpeg
-          image: linuxserver/ffmpeg:latest
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              # Brief grace for mediamtx to come up + all nine paths to be
-              # publishable (on-demand sources spin up on first SRT read).
-              # Without this, ffmpeg may exit immediately on the first input
-              # 404 and the pod loops in CrashLoopBackOff.
-              sleep 10
-
-              # Build the input list. Each tile is read from mediamtx via
-              # RTSP — same node, loopback. RTSP picked over SRT because
-              # libsrt's URL parser + ffmpeg's URL parser disagree on how
-              # the `streamid=read:path` query gets escaped, which made
-              # the SRT version fail with "Connection ... Input/output
-              # error" before any handshake bytes flowed. RTSP URLs have
-              # no such ambiguity.
-              INPUTS=""
-              for P in mxl-stream-native mxl-stream-2 mxl-stream-3 \
-                       mxl-stream-4 mxl-stream-5 mxl-stream-6 \
-                       mxl-stream-7 mxl-stream-8 sintel; do
-                INPUTS="$INPUTS -rtsp_transport tcp -i rtsp://mediamtx:8554/$P"
-              done
-
-              # Tile labels rendered into each input's bottom band.
-              # Indexed 0..8 to match input order above.
-              L0="1  MXL NATIVE"
-              L1="2  MXL 2  SNOW"
-              L2="3  MXL 3  BALL"
-              L3="4  MXL 4  SMPTE75"
-              L4="5  MXL 5  ZPLATE"
-              L5="6  MXL 6  GAMUT"
-              L6="7  MXL 7  PWHEEL"
-              L7="8  MXL 8  SPOKES"
-              L8="9  SRT SINTEL"
-
-              # Tile geometry: 426x238 per tile (1278x714 grid + 1px gap)
-              # padded out to a clean 1280x720 final canvas.
-              # drawtext expansion=normal so the label string is taken literally.
-              # The xstack layout positions tiles in row-major 3x3 order.
-              FC=""
-              i=0
-              for L in "$L0" "$L1" "$L2" "$L3" "$L4" "$L5" "$L6" "$L7" "$L8"; do
-                FC="$FC[$i:v]scale=426:238:force_original_aspect_ratio=decrease,pad=426:238:(ow-iw)/2:(oh-ih)/2:color=black,drawtext=text='$L':x=4:y=h-18:fontsize=14:fontcolor=#00ff66:box=1:boxcolor=black@0.7:expansion=normal[v$i];"
-                i=$((i+1))
-              done
-              FC="$FC[v0][v1][v2][v3][v4][v5][v6][v7][v8]xstack=inputs=9:layout=0_0|w0_0|w0+w1_0|0_h0|w0_h0|w0+w1_h0|0_h0+h1|w0_h0+h1|w0+w1_h0+h1[grid];"
-              # Global title bar: source brand on the left, server wall-clock
-              # on the right. localtime updates every frame so the burned-in
-              # clock is the compositor's view — viewers diff the displayed
-              # clock against their own to see HLS buffering directly.
-              FC="$FC[grid]pad=1280:720:0:0:color=black,drawtext=text='MXL DMF COMPOSITE':x=8:y=4:fontsize=14:fontcolor=#888888:box=1:boxcolor=black@0.6,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=w-tw-8:y=4:fontsize=14:fontcolor=#00ff66:box=1:boxcolor=black@0.6[out]"
-
-              exec ffmpeg -hide_banner -loglevel warning $INPUTS \
-                -filter_complex "$FC" \
-                -map "[out]" \
-                -c:v libx264 -preset ultrafast -tune zerolatency \
-                -g 60 -b:v 4000k -maxrate 4000k -bufsize 8000k \
-                -an \
-                -f rtsp -rtsp_transport tcp \
-                "rtsp://mediamtx:8554/composite"
+        - name: compositor
+          image: ghcr.io/qvest-digital/mxl-dmf-demo-app/compositor:latest
+          imagePullPolicy: Always
+          env:
+            - name: MXL_DOMAIN
+              value: /domain
+            - name: MXL_COMPOSITE_OUT
+              value: rtsp://mediamtx:8554/composite
+            # Keep in sync with the writer/reader MXL_FLOW_IDS.
+            - name: MXL_FLOW_IDS
+              value: >-
+                5fbec3b1-1b0f-417d-9059-8b94a47197ed
+                a1000000-0000-0000-0000-000000000001
+                a1000000-0000-0000-0000-000000000002
+                a1000000-0000-0000-0000-000000000003
+                a1000000-0000-0000-0000-000000000004
+                a1000000-0000-0000-0000-000000000005
+                a1000000-0000-0000-0000-000000000006
+                a1000000-0000-0000-0000-000000000007
+          volumeMounts:
+            - name: domain-volume
+              mountPath: /domain
+              # Read-only; libmxl-side acquires a session slot in the flow's
+              # shared header for atomics, but never writes payload bytes.
+              # Match the mediamtx mount semantics (read-write there only so
+              # libmxl's reader-table atomics work). Sticking with rw here
+              # for the same reason — flip to false once libmxl gains an
+              # explicit read-only reader API.
+              readOnly: false
           resources:
-            # Nine H.264 decodes (mostly fast — sources are veryfast/ultrafast
-            # H.264 at ~3 Mbps each) + scale + xstack + one libx264 ultrafast
-            # encode at 1280x720. Measures around 4 CPU steady on this node
-            # class; cap at 8 to absorb transient compositing spikes.
+            # One x264 ultrafast encode + 8 livecopy memcpys + compositor
+            # mixing. Steady state ~3 CPU, peak during keyframes ~6 CPU.
             requests:
               cpu: "2"
               memory: 1Gi
             limits:
-              cpu: "8"
-              memory: 4Gi
+              cpu: "6"
+              memory: 3Gi
+      volumes:
+        # Same physical tmpfs the reader-container writes into. hostPath
+        # mount in reader-deployment.yaml + mediamtx-deployment.yaml gives
+        # three pods on this node a shared view of /dev/shm/mxl-domain-reader.
+        - name: domain-volume
+          hostPath:
+            path: /dev/shm/mxl-domain-reader
+            type: DirectoryOrCreate
