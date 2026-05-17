@@ -257,7 +257,11 @@ int main(int argc, char** argv)
             "halignment=right valignment=top color=0xff00ff66 "
         "! x264enc speed-preset=ultrafast tune=zerolatency bframes=0 key-int-max=30 "
         "! video/x-h264,profile=baseline "
-        "! mpegtsmux "
+        // RTSP carries codec frames over RTP, not MPEG-TS. h264parse with
+        // config-interval=-1 republishes SPS/PPS on every IDR so a viewer
+        // joining mid-stream can decode without waiting for the next key
+        // frame.
+        "! h264parse config-interval=-1 "
         "! rtspclientsink protocols=tcp location=\"" + outUrl + "\" ";
 
     for (std::size_t i = 0; i < flowIds.size(); ++i)
