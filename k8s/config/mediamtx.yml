@@ -106,3 +106,11 @@ paths:
   sintel:
     source: srt://loop-sintel:9000?mode=caller
     sourceOnDemand: true
+
+  # Compositor sink. The composite pod (ffmpeg in k8s/composite-deployment.yaml)
+  # pulls all nine tile paths back via SRT, builds a 3x3 mosaic with burned-in
+  # tile labels + global clock, and pushes the mosaic here. No source: line =
+  # publisher-mode path, ready to receive an SRT/RTSP/RTMP/WebRTC publisher.
+  # The multiviewer landing page plays /hls/composite/index.m3u8 directly so
+  # the demo is one shareable URL with no per-tile JS player pool.
+  composite: {}

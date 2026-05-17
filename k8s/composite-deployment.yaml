@@ -1,0 +1,117 @@
+---
+# Server-side 3x3 mosaic compositor. Pulls all nine tile flows back from
+# mediamtx via SRT (in-cluster, sub-100ms loopback), scales each to 426x238,
+# xstacks into a 1280x720 grid with burned-in tile labels + global clock,
+# and pushes the mosaic to mediamtx's `composite` path. The multiviewer
+# landing page then plays a single HLS stream instead of nine parallel
+# hls.js instances — the demo becomes one shareable URL that works in any
+# browser, iframe, or projector with no client-side rendering cost.
+#
+# Latency note: the burned-in clock in this mosaic shows the compositor's
+# wall-clock at composite time, which is upstream of the HLS muxer's
+# ~2-3s buffer. Viewers see the picture 3s late but the *number on the
+# picture* is from the moment the frame entered the HLS pipeline — that's
+# the gap to measure when comparing transport latencies (MXL vs SRT) in
+# a later iteration that also burns per-tile pipeline timestamps.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: composite
+  labels:
+    app: composite
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: composite
+  template:
+    metadata:
+      labels:
+        app: composite
+    spec:
+      # Same-node as mediamtx (which is same-node as the reader) so the
+      # nine SRT inputs are loopback inside the pod network — avoids
+      # pushing 9 × 3 Mbps = ~27 Mbps across the cluster network back
+      # and forth.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: mediamtx
+              topologyKey: kubernetes.io/hostname
+      # Mediamtx (and therefore this pod's affinity target) lives on the
+      # reader's EFA-tainted node — needs the toleration to schedule.
+      tolerations:
+        - key: "vpc.amazonaws.com/efa"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Brief grace for mediamtx to come up + all nine paths to be
+              # publishable (on-demand sources spin up on first SRT read).
+              # Without this, ffmpeg may exit immediately on the first input
+              # 404 and the pod loops in CrashLoopBackOff.
+              sleep 10
+
+              # Build the input list. Each MXL/SRT path is read from
+              # mediamtx via SRT — same node, loopback, no network hops.
+              INPUTS=""
+              for P in mxl-stream-native mxl-stream-2 mxl-stream-3 \
+                       mxl-stream-4 mxl-stream-5 mxl-stream-6 \
+                       mxl-stream-7 mxl-stream-8 sintel; do
+                INPUTS="$INPUTS -i srt://mediamtx:8890?streamid=read:$P&latency=200"
+              done
+
+              # Tile labels rendered into each input's bottom band.
+              # Indexed 0..8 to match input order above.
+              L0="1  MXL NATIVE"
+              L1="2  MXL 2  SNOW"
+              L2="3  MXL 3  BALL"
+              L3="4  MXL 4  SMPTE75"
+              L4="5  MXL 5  ZPLATE"
+              L5="6  MXL 6  GAMUT"
+              L6="7  MXL 7  PWHEEL"
+              L7="8  MXL 8  SPOKES"
+              L8="9  SRT SINTEL"
+
+              # Tile geometry: 426x238 per tile (1278x714 grid + 1px gap)
+              # padded out to a clean 1280x720 final canvas.
+              # drawtext expansion=normal so the label string is taken literally.
+              # The xstack layout positions tiles in row-major 3x3 order.
+              FC=""
+              i=0
+              for L in "$L0" "$L1" "$L2" "$L3" "$L4" "$L5" "$L6" "$L7" "$L8"; do
+                FC="$FC[$i:v]scale=426:238:force_original_aspect_ratio=decrease,pad=426:238:(ow-iw)/2:(oh-ih)/2:color=black,drawtext=text='$L':x=4:y=h-18:fontsize=14:fontcolor=#00ff66:box=1:boxcolor=black@0.7:expansion=normal[v$i];"
+                i=$((i+1))
+              done
+              FC="$FC[v0][v1][v2][v3][v4][v5][v6][v7][v8]xstack=inputs=9:layout=0_0|w0_0|w0+w1_0|0_h0|w0_h0|w0+w1_h0|0_h0+h1|w0_h0+h1|w0+w1_h0+h1[grid];"
+              # Global title bar: source brand on the left, server wall-clock
+              # on the right. localtime updates every frame so the burned-in
+              # clock is the compositor's view — viewers diff the displayed
+              # clock against their own to see HLS buffering directly.
+              FC="$FC[grid]pad=1280:720:0:0:color=black,drawtext=text='MXL DMF COMPOSITE':x=8:y=4:fontsize=14:fontcolor=#888:box=1:boxcolor=black@0.6,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=w-tw-8:y=4:fontsize=14:fontcolor=#00ff66:box=1:boxcolor=black@0.6[out]"
+
+              exec ffmpeg -hide_banner -loglevel warning $INPUTS \
+                -filter_complex "$FC" \
+                -map "[out]" \
+                -c:v libx264 -preset ultrafast -tune zerolatency \
+                -g 60 -b:v 4000k -maxrate 4000k -bufsize 8000k \
+                -an \
+                -f mpegts \
+                "srt://mediamtx:8890?streamid=publish:composite&pkt_size=1316"
+          resources:
+            # Nine H.264 decodes (mostly fast — sources are veryfast/ultrafast
+            # H.264 at ~3 Mbps each) + scale + xstack + one libx264 ultrafast
+            # encode at 1280x720. Measures around 4 CPU steady on this node
+            # class; cap at 8 to absorb transient compositing spikes.
+            requests:
+              cpu: "2"
+              memory: 1Gi
+            limits:
+              cpu: "8"
+              memory: 4Gi

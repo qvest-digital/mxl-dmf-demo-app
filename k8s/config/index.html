@@ -1,169 +1,64 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>MULTIVIEWER</title>
+<title>MXL DMF COMPOSITE</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; background: #000; color: #ccc; font-family: "Menlo","Consolas","Courier New",monospace; font-size: 11px; overflow: hidden; }
   #bar { height: 22px; background: #0a0a0a; border-bottom: 1px solid #222; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
-  #bar .l, #bar .r { display: flex; gap: 16px; }
   #bar .m { display: flex; gap: 14px; color: #aaa; }
-  #bar .m span b { color: #00cc00; font-weight: bold; }
+  #bar .m span b { color: #00cc00; }
   #bar .m span.warn b { color: #ffaa00; }
   #bar .m span.bad  b { color: #ff3030; }
-  #grid { position: absolute; top: 22px; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 1px; background: #1a1a1a; }
-  .tile { position: relative; background: #000; border: 1px solid transparent; overflow: hidden; }
-  .tile.live  { border-color: #007a00; }
-  .tile.err   { border-color: #aa0000; }
-  .tile.kind-srt .num::after { content: '  SRT'; color: #ffaa00; font-size: 9px; margin-left: 4px; }
-  .tile.kind-mxl .num::after { content: '  MXL'; color: #00aaff; font-size: 9px; margin-left: 4px; }
-  .tile video { position: absolute; top: 0; left: 0; width: 100%; height: calc(100% - 18px); background: #000; object-fit: contain; }
-  .num   { position: absolute; top: 2px; left: 4px; font-weight: bold; color: #fff; text-shadow: 1px 1px 0 #000; font-size: 12px; z-index: 2; }
-  .stat  { position: absolute; top: 2px; right: 4px; font-weight: bold; font-size: 10px; padding: 0 4px; z-index: 2; text-shadow: 1px 1px 0 #000; }
-  .stat.live { color: #00ff00; }
-  .stat.con  { color: #ffaa00; }
-  .stat.off  { color: #ff3030; }
-  .umd   { position: absolute; bottom: 0; left: 0; right: 0; height: 18px; background: #111; border-top: 1px solid #222; padding: 0 6px; line-height: 18px; color: #00cc00; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; display: flex; justify-content: space-between; }
-  .umd .lat { color: #ccc; font-variant-numeric: tabular-nums; }
-  .umd .lat.good { color: #00cc00; }
-  .umd .lat.warn { color: #ffaa00; }
-  .umd .lat.bad  { color: #ff3030; }
+  #stage { position: absolute; top: 22px; left: 0; right: 0; bottom: 0; background: #000; display: flex; align-items: center; justify-content: center; }
+  #stage video { width: 100%; height: 100%; background: #000; object-fit: contain; }
+  #foot { position: absolute; bottom: 0; left: 0; right: 0; background: #0a0a0a; border-top: 1px solid #222; padding: 4px 8px; font-size: 10px; color: #666; }
+  #foot a { color: #00aaff; text-decoration: none; margin-right: 12px; }
 </style>
 </head>
 <body>
   <div id="bar">
-    <div class="l"><span>MXL DMF MULTIVIEWER</span></div>
+    <div><span>MXL DMF COMPOSITE</span></div>
     <div class="m">
-      <span>MXL DRIFT <b id="m-drift">--</b> ms</span>
-      <span>SRT vs MXL <b id="m-srt-delta">--</b> ms</span>
-      <span>MXL <b id="m-min">--</b>/<b id="m-max">--</b> ms</span>
+      <span>HLS LAG <b id="hls-lag">--</b> ms</span>
+      <span>STATE <b id="state">CONN</b></span>
     </div>
-    <div class="r"><span id="clk">--:--:--</span></div>
+    <div><span id="clk">--:--:--</span></div>
   </div>
-  <div id="grid"></div>
+  <div id="stage">
+    <video id="v" muted autoplay playsinline></video>
+  </div>
+  <div id="foot">
+    Server-side 3x3 mosaic of nine MXL/SRT flows. The clock burned into the
+    top-right of the picture is the compositor's wall-clock when the frame
+    was muxed; the clock above is your browser's wall-clock. Subtract them
+    to read HLS+player buffering. Individual tile feeds remain available at
+    <a href="/hls/mxl-stream-native/index.m3u8">mxl-stream-native</a>
+    <a href="/hls/mxl-stream-2/index.m3u8">mxl-stream-2</a>
+    <a href="/hls/mxl-stream-3/index.m3u8">mxl-stream-3</a>
+    <a href="/hls/mxl-stream-4/index.m3u8">mxl-stream-4</a>
+    <a href="/hls/mxl-stream-5/index.m3u8">mxl-stream-5</a>
+    <a href="/hls/mxl-stream-6/index.m3u8">mxl-stream-6</a>
+    <a href="/hls/mxl-stream-7/index.m3u8">mxl-stream-7</a>
+    <a href="/hls/mxl-stream-8/index.m3u8">mxl-stream-8</a>
+    <a href="/hls/sintel/index.m3u8">sintel</a>
+  </div>
 
   <script>
-    // Per-tile glass-to-glass latency is computed from PROGRAM-DATE-TIME tags
-    // in the HLS playlist (mediamtx emits these because hlsAlwaysRemux is on).
-    // For each loaded fragment we record (pdt_ms, start_pts_s); the displayed
-    // playhead time on the video element is currentTime; subtract to get the
-    // wall-clock time at which the visible frame was muxed, then diff against
-    // Date.now() for end-to-end latency. Drift = max - min across all LIVE
-    // tiles; this is the metric that matters for multiviewer sync.
-    // 3x3 grid: tiles 1-8 are MXL flows (cross-node EFA, libmxl zero-copy
-    // read in mediamtx), tile 9 is the SRT-bridge Sintel loop kept as a
-    // control baseline. The latency DRIFT metric in the header is the
-    // headline story: across the 8 MXL tiles it should converge to near
-    // zero (single common path), while the SRT tile sits visibly higher.
-    var sources = [
-      { id: 'mxl-1', n: 1, label: 'MXL 1 NATIVE', url: '/hls/mxl-stream-native/index.m3u8', kind: 'mxl' },
-      { id: 'mxl-2', n: 2, label: 'MXL 2 SNOW',   url: '/hls/mxl-stream-2/index.m3u8',      kind: 'mxl' },
-      { id: 'mxl-3', n: 3, label: 'MXL 3 BALL',   url: '/hls/mxl-stream-3/index.m3u8',      kind: 'mxl' },
-      { id: 'mxl-4', n: 4, label: 'MXL 4 SMPT75', url: '/hls/mxl-stream-4/index.m3u8',      kind: 'mxl' },
-      { id: 'mxl-5', n: 5, label: 'MXL 5 ZPLATE', url: '/hls/mxl-stream-5/index.m3u8',      kind: 'mxl' },
-      { id: 'mxl-6', n: 6, label: 'MXL 6 GAMUT',  url: '/hls/mxl-stream-6/index.m3u8',      kind: 'mxl' },
-      { id: 'mxl-7', n: 7, label: 'MXL 7 PWHEEL', url: '/hls/mxl-stream-7/index.m3u8',      kind: 'mxl' },
-      { id: 'mxl-8', n: 8, label: 'MXL 8 SPOKES', url: '/hls/mxl-stream-8/index.m3u8',      kind: 'mxl' },
-      { id: 'srt',   n: 9, label: 'SRT SINTEL',   url: '/hls/sintel/index.m3u8',            kind: 'srt' }
-    ];
-
-    var grid = document.getElementById('grid');
-    var clk  = document.getElementById('clk');
+    var clk = document.getElementById('clk');
+    var lagEl = document.getElementById('hls-lag');
+    var stEl = document.getElementById('state');
+    var video = document.getElementById('v');
 
     function pad(n){ return n<10 ? '0'+n : ''+n; }
     function tick(){
       var d = new Date();
       clk.textContent = pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
     }
-    setInterval(tick, 1000); tick();
+    setInterval(tick, 250); tick();
 
-    function mkTile(s){
-      var t = document.createElement('div');
-      t.className = 'tile kind-' + s.kind;
-      t.id = 't-'+s.id;
-      t.innerHTML =
-        '<span class="num">'+s.n+'</span>' +
-        '<span class="stat con" id="st-'+s.id+'">CONN</span>' +
-        '<video id="v-'+s.id+'" muted autoplay playsinline></video>' +
-        '<div class="umd"><span>'+s.n+'  '+s.label+'</span><span class="lat" id="lat-'+s.id+'">-- ms</span></div>';
-      grid.appendChild(t);
-    }
-
-    // Per-source state: live flag + most-recent computed latency in ms
-    var state = {};
-    sources.forEach(function(s){ state[s.id] = { live: false, lat: null }; });
-
-    function classifyLat(ms){
-      if (ms == null) return '';
-      if (ms < 2500)  return 'good';
-      if (ms < 6000)  return 'warn';
-      return 'bad';
-    }
-
-    function setLat(id, ms){
-      var el = document.getElementById('lat-'+id);
-      if (ms == null) { el.textContent = '-- ms'; el.className = 'lat'; return; }
-      el.textContent = ms.toFixed(0) + ' ms';
-      el.className = 'lat ' + classifyLat(ms);
-      state[id].lat = ms;
-    }
-
-    function updateHeader(){
-      var mxlVals = sources.filter(function(s){ return s.kind === 'mxl' && state[s.id].live; })
-                           .map(function(s){ return state[s.id].lat; })
-                           .filter(function(v){ return v != null; });
-      var srtVals = sources.filter(function(s){ return s.kind === 'srt' && state[s.id].live; })
-                           .map(function(s){ return state[s.id].lat; })
-                           .filter(function(v){ return v != null; });
-      var min = document.getElementById('m-min');
-      var max = document.getElementById('m-max');
-      var dft = document.getElementById('m-drift');
-      var srtDelta = document.getElementById('m-srt-delta');
-      var spans = document.querySelectorAll('#bar .m span');
-      spans.forEach(function(sp){ sp.className = ''; });
-
-      if (!mxlVals.length) {
-        min.textContent = '--'; max.textContent = '--'; dft.textContent = '--';
-      } else {
-        var mn = Math.min.apply(null, mxlVals);
-        var mx = Math.max.apply(null, mxlVals);
-        var dr = mx - mn;
-        min.textContent = mn.toFixed(0);
-        max.textContent = mx.toFixed(0);
-        dft.textContent = dr.toFixed(0);
-        // Drift is the headline MXL metric — tight = the fabric is doing its job.
-        spans[0].className = (dr < 500 ? '' : (dr < 1500 ? 'warn' : 'bad'));
-      }
-
-      if (!srtVals.length || !mxlVals.length) {
-        srtDelta.textContent = '--';
-      } else {
-        // Use median MXL latency as the comparison anchor; mean would be
-        // skewed by a single tile flapping. Median of small N is just
-        // sorted middle.
-        var sorted = mxlVals.slice().sort(function(a,b){ return a-b; });
-        var med = sorted[Math.floor(sorted.length/2)];
-        var srtMed = srtVals.slice().sort(function(a,b){ return a-b; })[Math.floor(srtVals.length/2)];
-        var delta = srtMed - med;
-        srtDelta.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(0);
-        // Positive delta = SRT is slower (expected). Negative = SRT is
-        // somehow faster (unexpected; flag it).
-        spans[1].className = (delta >= 0 ? '' : 'bad');
-      }
-    }
-
-    function play(s){
-      var tile  = document.getElementById('t-'+s.id);
-      var video = document.getElementById('v-'+s.id);
-      var stEl  = document.getElementById('st-'+s.id);
-      if (!Hls.isSupported()) return;
-      var hls = new Hls({ liveSyncDurationCount: 1, liveMaxLatencyDurationCount: 2, enableWorker: true, lowLatencyMode: true });
-      hls.loadSource(s.url);
-      hls.attachMedia(video);
-
-      // Fragment ledger: keyed by frag.sn, stores { pdt_ms, start_pts_s, dur_s }.
-      // Pruned to the most recent 8 segments so the map stays small.
+    if (Hls.isSupported()) {
       var frags = {};
       function rememberFrag(f){
         if (f.programDateTime == null) return;
@@ -174,59 +69,37 @@
           delete frags[keys[0]];
         }
       }
-
-      hls.on(Hls.Events.MANIFEST_PARSED, function(){
-        stEl.textContent = 'LIVE';
-        stEl.className = 'stat live';
-        tile.className = 'tile live';
-        state[s.id].live = true;
-        video.play();
-      });
-      hls.on(Hls.Events.LEVEL_LOADED, function(ev, data){
-        if (data.details && data.details.fragments) data.details.fragments.forEach(rememberFrag);
-      });
-      hls.on(Hls.Events.FRAG_LOADED, function(ev, data){
-        rememberFrag(data.frag);
-      });
+      var hls = new Hls({ liveSyncDurationCount: 1, liveMaxLatencyDurationCount: 2, enableWorker: true, lowLatencyMode: true });
+      hls.loadSource('/hls/composite/index.m3u8');
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function(){ stEl.textContent = 'LIVE'; stEl.style.color = '#00ff00'; video.play(); });
+      hls.on(Hls.Events.LEVEL_LOADED, function(ev, data){ if (data.details && data.details.fragments) data.details.fragments.forEach(rememberFrag); });
+      hls.on(Hls.Events.FRAG_LOADED, function(ev, data){ rememberFrag(data.frag); });
       hls.on(Hls.Events.ERROR, function(ev, data){
         if (!data.fatal) return;
-        stEl.textContent = 'OFF';
-        stEl.className = 'stat off';
-        tile.className = 'tile err';
-        state[s.id].live = false;
-        setLat(s.id, null);
+        stEl.textContent = 'OFF'; stEl.style.color = '#ff3030';
         setTimeout(function(){
-          stEl.textContent = 'CONN';
-          stEl.className = 'stat con';
-          tile.className = 'tile';
-          hls.loadSource(s.url);
+          stEl.textContent = 'CONN'; stEl.style.color = '#ffaa00';
+          hls.loadSource('/hls/composite/index.m3u8');
         }, 5000);
       });
 
-      // Sample latency 4x/s — fast enough to feel live, cheap enough not to
-      // dominate the event loop with nine tiles running.
+      // HLS+player lag. Same PDT trick as the old grid: subtract the
+      // wall-clock at which the visible frame was muxed from Date.now().
+      // This is the delta between the burned-in clock on the picture and
+      // the bar clock above — visible to the eye as a sanity check.
       setInterval(function(){
-        if (!state[s.id].live || video.readyState < 2) return;
+        if (video.readyState < 2) return;
         var ct = video.currentTime;
-        // Find the fragment whose [start, start+dur) contains currentTime.
         var match = null;
-        for (var k in frags) {
-          var f = frags[k];
-          if (ct >= f.start && ct < f.start + f.dur) { match = f; break; }
-        }
+        for (var k in frags) { var f = frags[k]; if (ct >= f.start && ct < f.start + f.dur) { match = f; break; } }
         if (!match) return;
-        var frameWallMs = match.pdt + (ct - match.start) * 1000;
-        var lat = Date.now() - frameWallMs;
-        if (lat < 0 || lat > 60000) return; // sanity reject; PDT skew can briefly invert
-        setLat(s.id, lat);
+        var lag = Date.now() - (match.pdt + (ct - match.start) * 1000);
+        if (lag < 0 || lag > 60000) return;
+        lagEl.textContent = lag.toFixed(0);
+        lagEl.parentElement.className = (lag < 2500 ? '' : (lag < 6000 ? 'warn' : 'bad'));
       }, 250);
     }
-
-    sources.forEach(mkTile);
-    sources.forEach(play);
-
-    // Header recompute on its own cadence — independent of per-tile sampling.
-    setInterval(updateHeader, 500);
   </script>
 </body>
 </html>
