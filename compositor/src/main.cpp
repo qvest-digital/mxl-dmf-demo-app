@@ -261,12 +261,6 @@ int main(int argc, char** argv)
         // encoder hiccup doesn't backpropagate to the readers.
         "! queue leaky=downstream max-size-buffers=4 max-size-bytes=0 max-size-time=0 "
         "! videoconvert "
-        // Single composite-time clock for the title bar — useful as a global
-        // reference vs the per-tile clocks burned in at the writer (they
-        // should agree to within microseconds after this refactor).
-        "! clockoverlay font-desc=\"Sans Bold 20\" "
-            "time-format=\"%H:%M:%S\" "
-            "halignment=right valignment=top color=0xff00ff66 "
         // Quality knobs:
         //  - speed-preset=faster: still real-time on a single core, but
         //    gives x264 enough lookahead to make better mode decisions
