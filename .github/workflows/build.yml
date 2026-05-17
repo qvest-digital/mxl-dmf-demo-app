@@ -39,9 +39,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p /tmp/k8s-rendered
-          cp k8s/*.yaml /tmp/k8s-rendered/
-          echo "=== Manifests ==="
-          ls /tmp/k8s-rendered/
+          # Copy the whole k8s/ tree (manifests + config/ subdir consumed
+          # by kustomize configMapGenerator). A flat *.yaml glob would
+          # silently drop config/, which then makes the kustomize build
+          # in Flux fail with "no such file or directory".
+          cp -R k8s/. /tmp/k8s-rendered/
+          echo "=== Tree ==="
+          find /tmp/k8s-rendered -type f | sort
 
       - name: Push k8s manifests as OCI artifact
         shell: bash
