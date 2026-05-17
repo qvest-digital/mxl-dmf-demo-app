@@ -35,15 +35,7 @@ data:
     srtAddress: :8890
 
     paths:
-      # Existing path: pulls H.264-over-SRT from the reader pod's
-      # `mxl-gst-sink` (encoded by the reader-container from MXL grains).
-      # Kept so the showcase can demonstrate the original SRT-bridge pipeline
-      # side-by-side with the native one below.
-      mxl-stream:
-        source: srt://reader-media-service:5000?mode=caller
-        sourceOnDemand: true
-
-      # New path: mediamtx reads MXL grains zero-copy from the same /domain
+      # mediamtx reads MXL grains zero-copy from the same /domain
       # tmpfs the reader-container fills via EFA RDMA. This is the integration
       # test for the upstream PR qvest-digital/mediamtx#1 (MXL static source).
       mxl-stream-native:
@@ -75,4 +67,25 @@ data:
 
       froscon-2:
         source: srt://loop-froscon-2:9000?mode=caller
+        sourceOnDemand: true
+
+      # Blender open movies (CC-BY) + CCC + NASA, same loop pattern.
+      bbb:
+        source: srt://loop-bbb:9000?mode=caller
+        sourceOnDemand: true
+
+      tears:
+        source: srt://loop-tears:9000?mode=caller
+        sourceOnDemand: true
+
+      caminandes:
+        source: srt://loop-caminandes:9000?mode=caller
+        sourceOnDemand: true
+
+      c3-gone:
+        source: srt://loop-c3-gone:9000?mode=caller
+        sourceOnDemand: true
+
+      nasa-iss:
+        source: srt://loop-nasa-iss:9000?mode=caller
         sourceOnDemand: true

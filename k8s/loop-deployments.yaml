@@ -254,3 +254,287 @@ spec:
       targetPort: 9000
       protocol: UDP
       name: srt
+---
+# Blender open movies (CC-BY) + 33C3 talk (CCC, CC-BY) + NASA ISS clip (PD).
+# All cached from the same S3 bucket as Sintel/FrOSCon on first pod start.
+# Overlay = channel bug text + clock, mirroring loop-sintel.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-bbb
+  labels:
+    app: loop-bbb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loop-bbb
+  template:
+    metadata:
+      labels:
+        app: loop-bbb
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/bbb.mov
+              if [ -s "$FILE" ]; then echo "cached, skipping fetch"; exit 0; fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/big-buck-bunny.mov"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/bbb.mov \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='CH 5 BBB':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports: [{containerPort: 9000, protocol: UDP, name: srt}]
+          volumeMounts: [{name: cache, mountPath: /cache, readOnly: true}]
+          resources:
+            requests: {cpu: 300m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-bbb
+  labels: {app: loop-bbb}
+spec:
+  type: ClusterIP
+  selector: {app: loop-bbb}
+  ports: [{port: 9000, targetPort: 9000, protocol: UDP, name: srt}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-tears
+  labels: {app: loop-tears}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: loop-tears}}
+  template:
+    metadata:
+      labels: {app: loop-tears}
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/tears.mp4
+              if [ -s "$FILE" ]; then echo "cached, skipping fetch"; exit 0; fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/tears-of-steel.mp4"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts: [{name: cache, mountPath: /cache}]
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/tears.mp4 \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='CH 6 TEARS':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports: [{containerPort: 9000, protocol: UDP, name: srt}]
+          volumeMounts: [{name: cache, mountPath: /cache, readOnly: true}]
+          resources:
+            requests: {cpu: 300m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-tears
+  labels: {app: loop-tears}
+spec:
+  type: ClusterIP
+  selector: {app: loop-tears}
+  ports: [{port: 9000, targetPort: 9000, protocol: UDP, name: srt}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-caminandes
+  labels: {app: loop-caminandes}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: loop-caminandes}}
+  template:
+    metadata:
+      labels: {app: loop-caminandes}
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/caminandes.mp4
+              if [ -s "$FILE" ]; then echo "cached, skipping fetch"; exit 0; fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/caminandes-llama-drama.mp4"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts: [{name: cache, mountPath: /cache}]
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/caminandes.mp4 \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='CH 7 CAMI':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports: [{containerPort: 9000, protocol: UDP, name: srt}]
+          volumeMounts: [{name: cache, mountPath: /cache, readOnly: true}]
+          resources:
+            requests: {cpu: 300m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-caminandes
+  labels: {app: loop-caminandes}
+spec:
+  type: ClusterIP
+  selector: {app: loop-caminandes}
+  ports: [{port: 9000, targetPort: 9000, protocol: UDP, name: srt}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-c3-gone
+  labels: {app: loop-c3-gone}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: loop-c3-gone}}
+  template:
+    metadata:
+      labels: {app: loop-c3-gone}
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/c3-gone.mp4
+              if [ -s "$FILE" ]; then echo "cached, skipping fetch"; exit 0; fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/33c3-gone-in-60-ms.mp4"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts: [{name: cache, mountPath: /cache}]
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/c3-gone.mp4 \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='CH 8 33C3':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports: [{containerPort: 9000, protocol: UDP, name: srt}]
+          volumeMounts: [{name: cache, mountPath: /cache, readOnly: true}]
+          resources:
+            requests: {cpu: 300m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-c3-gone
+  labels: {app: loop-c3-gone}
+spec:
+  type: ClusterIP
+  selector: {app: loop-c3-gone}
+  ports: [{port: 9000, targetPort: 9000, protocol: UDP, name: srt}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loop-nasa-iss
+  labels: {app: loop-nasa-iss}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: loop-nasa-iss}}
+  template:
+    metadata:
+      labels: {app: loop-nasa-iss}
+    spec:
+      initContainers:
+        - name: fetch-content
+          image: curlimages/curl:8.10.1
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              FILE=/cache/nasa.mp4
+              if [ -s "$FILE" ]; then echo "cached, skipping fetch"; exit 0; fi
+              curl -fsSL -o "$FILE" \
+                "https://mxl-dmf-demo-content-eu-central-1.s3.eu-central-1.amazonaws.com/nasa-earth-4k-exp65.mp4"
+              echo "fetched $(wc -c < "$FILE") bytes"
+          volumeMounts: [{name: cache, mountPath: /cache}]
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec ffmpeg -hide_banner -re -stream_loop -1 -i /cache/nasa.mp4 \
+                -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5,drawtext=text='CH 9 NASA':x=w-tw-20:y=20:fontsize=36:fontcolor=red:box=1:boxcolor=white@0.7" \
+                -c:v libx264 -preset veryfast -tune zerolatency -g 60 -b:v 2500k -maxrate 2500k -bufsize 5000k \
+                -c:a aac -b:a 128k -ac 2 \
+                -f mpegts "srt://0.0.0.0:9000?mode=listener&latency=500"
+          ports: [{containerPort: 9000, protocol: UDP, name: srt}]
+          volumeMounts: [{name: cache, mountPath: /cache, readOnly: true}]
+          resources:
+            requests: {cpu: 300m, memory: 256Mi}
+            limits:   {cpu: "1",  memory: 512Mi}
+      volumes:
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loop-nasa-iss
+  labels: {app: loop-nasa-iss}
+spec:
+  type: ClusterIP
+  selector: {app: loop-nasa-iss}
+  ports: [{port: 9000, targetPort: 9000, protocol: UDP, name: srt}]
