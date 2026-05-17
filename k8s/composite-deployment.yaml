@@ -94,7 +94,7 @@ spec:
               # on the right. localtime updates every frame so the burned-in
               # clock is the compositor's view — viewers diff the displayed
               # clock against their own to see HLS buffering directly.
-              FC="$FC[grid]pad=1280:720:0:0:color=black,drawtext=text='MXL DMF COMPOSITE':x=8:y=4:fontsize=14:fontcolor=#888:box=1:boxcolor=black@0.6,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=w-tw-8:y=4:fontsize=14:fontcolor=#00ff66:box=1:boxcolor=black@0.6[out]"
+              FC="$FC[grid]pad=1280:720:0:0:color=black,drawtext=text='MXL DMF COMPOSITE':x=8:y=4:fontsize=14:fontcolor=#888888:box=1:boxcolor=black@0.6,drawtext=text='%{localtime\:%H\\\\\:%M\\\\\:%S}':x=w-tw-8:y=4:fontsize=14:fontcolor=#00ff66:box=1:boxcolor=black@0.6[out]"
 
               exec ffmpeg -hide_banner -loglevel warning $INPUTS \
                 -filter_complex "$FC" \
