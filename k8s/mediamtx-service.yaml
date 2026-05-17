@@ -15,3 +15,10 @@ spec:
     - name: webrtc
       port: 8889
       targetPort: 8889
+    # RTSP for in-cluster ingest. The composite pod reads all nine tile
+    # paths from mediamtx via rtsp://mediamtx:8554/<path> and publishes
+    # the mosaic back as rtsp://mediamtx:8554/composite. Public ingress
+    # only proxies HTTP/HLS — RTSP stays internal.
+    - name: rtsp
+      port: 8554
+      targetPort: 8554

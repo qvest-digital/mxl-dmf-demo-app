@@ -21,7 +21,8 @@ hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
-rtsp: false
+rtsp: true
+rtspAddress: :8554
 rtmp: false
 srt: true
 srtAddress: :8890

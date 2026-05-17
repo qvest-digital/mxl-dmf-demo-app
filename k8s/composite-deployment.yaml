@@ -58,13 +58,18 @@ spec:
               # 404 and the pod loops in CrashLoopBackOff.
               sleep 10
 
-              # Build the input list. Each MXL/SRT path is read from
-              # mediamtx via SRT — same node, loopback, no network hops.
+              # Build the input list. Each tile is read from mediamtx via
+              # RTSP — same node, loopback. RTSP picked over SRT because
+              # libsrt's URL parser + ffmpeg's URL parser disagree on how
+              # the `streamid=read:path` query gets escaped, which made
+              # the SRT version fail with "Connection ... Input/output
+              # error" before any handshake bytes flowed. RTSP URLs have
+              # no such ambiguity.
               INPUTS=""
               for P in mxl-stream-native mxl-stream-2 mxl-stream-3 \
                        mxl-stream-4 mxl-stream-5 mxl-stream-6 \
                        mxl-stream-7 mxl-stream-8 sintel; do
-                INPUTS="$INPUTS -i srt://mediamtx:8890?streamid=read:$P&latency=200"
+                INPUTS="$INPUTS -rtsp_transport tcp -i rtsp://mediamtx:8554/$P"
               done
 
               # Tile labels rendered into each input's bottom band.
@@ -102,8 +107,8 @@ spec:
                 -c:v libx264 -preset ultrafast -tune zerolatency \
                 -g 60 -b:v 4000k -maxrate 4000k -bufsize 8000k \
                 -an \
-                -f mpegts \
-                "srt://mediamtx:8890?streamid=publish:composite&pkt_size=1316"
+                -f rtsp -rtsp_transport tcp \
+                "rtsp://mediamtx:8554/composite"
           resources:
             # Nine H.264 decodes (mostly fast — sources are veryfast/ultrafast
             # H.264 at ~3 Mbps each) + scale + xstack + one libx264 ultrafast
