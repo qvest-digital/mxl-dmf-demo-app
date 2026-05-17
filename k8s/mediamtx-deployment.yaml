@@ -73,16 +73,18 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:
-            # ffmpeg subprocess transcodes 1080p v210 → H.264 via libx264 at
-            # 30 fps. Idle mediamtx itself is ~125 Mi; the ffmpeg child needs
-            # another ~300-500 Mi on top. Pod limit < ~750 Mi caused the
-            # encoder to be cgroup-OOM-killed almost immediately after start.
+            # One ffmpeg libx264 subprocess per active MXL path. With 8 MXL
+            # tiles (+ 1 SRT loop) all live at once, the worst case is 9
+            # concurrent encoders. Idle mediamtx itself is ~125 Mi; each
+            # ffmpeg child is ~400-600 Mi at 1080p with the ultrafast preset
+            # the new mxl-stream-2..8 paths use. Headroom past 9 × 600 Mi
+            # to absorb spikes during muxer restarts.
             requests:
-              cpu: 200m
-              memory: 256Mi
-            limits:
               cpu: "2"
-              memory: 1500Mi
+              memory: 2Gi
+            limits:
+              cpu: "10"
+              memory: 8Gi
 
         # Caddy sidecar replaces the (now deleted) demo-app Go binary: serves
         # the multiviewer HTML at /, reverse-proxies HLS at /hls/* to mediamtx
