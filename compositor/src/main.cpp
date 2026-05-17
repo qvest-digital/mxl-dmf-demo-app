@@ -229,6 +229,11 @@ int main(int argc, char** argv)
     // has per-sink xpos/ypos/width/height set via pad properties; we write
     // them inline here so the result is one parse_launch call (no manual pad
     // linking).
+    // Bounded leaky queues are mandatory at every fan-in/fan-out point.
+    // Without them gst's default unbounded queueing piles up buffers when
+    // any downstream element stalls (rtspclientsink handshake, encoder
+    // catch-up after pipeline state change) and the pod OOM-kills inside
+    // seconds — what was killing the 3 Gi / 8 Gi attempts.
     std::string pipelineDesc =
         "compositor name=comp background=black ";
     for (std::size_t i = 0; i < flowIds.size(); ++i)
@@ -248,6 +253,9 @@ int main(int argc, char** argv)
         "! video/x-raw,format=I420,width=" + std::to_string(OUT_W) +
         ",height=" + std::to_string(OUT_H) +
         ",framerate=30000/1001 "
+        // Drop-old leaky queue right after the compositor so a brief
+        // encoder hiccup doesn't backpropagate to the readers.
+        "! queue leaky=downstream max-size-buffers=4 max-size-bytes=0 max-size-time=0 "
         "! videoconvert "
         // Single composite-time clock for the title bar — useful as a global
         // reference vs the per-tile clocks burned in at the writer (they
@@ -262,6 +270,10 @@ int main(int argc, char** argv)
         // joining mid-stream can decode without waiting for the next key
         // frame.
         "! h264parse config-interval=-1 "
+        // Drop-old leaky queue right before the RTSP sink: if mediamtx
+        // momentarily stalls accepting RTP, throw frames away rather
+        // than queue them indefinitely.
+        "! queue leaky=downstream max-size-buffers=8 max-size-bytes=0 max-size-time=0 "
         "! rtspclientsink protocols=tcp location=\"" + outUrl + "\" ";
 
     for (std::size_t i = 0; i < flowIds.size(); ++i)
@@ -269,6 +281,10 @@ int main(int argc, char** argv)
         pipelineDesc +=
             "appsrc name=src" + std::to_string(i) +
             " is-live=true format=time do-timestamp=false "
+            " max-bytes=20971520 block=true "
+            // Per-tile leaky queue absorbs short scheduler jitter without
+            // unbounded growth. 3 buffers ≈ 100 ms at 30 fps.
+            "! queue leaky=downstream max-size-buffers=3 max-size-bytes=0 max-size-time=0 "
             "! videoconvert "
             "! videoscale "
             "! video/x-raw,format=I420,width=" + std::to_string(TILE_W) +
