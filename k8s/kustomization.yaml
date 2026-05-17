@@ -3,8 +3,27 @@ kind: Kustomization
 resources:
   - ingress.yaml
   - ghcr-pull-secret.yaml
-  - mediamtx-configmap.yaml
   - mediamtx-deployment.yaml
   - mediamtx-service.yaml
-  - multiviewer-configmap.yaml
   - loop-deployments.yaml
+
+# Hash-suffixed configmaps: any change to a file under config/ produces
+# a new ConfigMap name, kustomize rewrites the volume reference in the
+# mediamtx Deployment, and the resulting spec diff triggers a rolling
+# restart. This is the GitOps-friendly way to ensure mediamtx + caddy
+# pick up new paths / Caddyfile / index.html on a `kubectl apply`
+# without an out-of-band `rollout restart`. Survives cluster recreate.
+configMapGenerator:
+  - name: mediamtx-config
+    options:
+      labels:
+        app: mediamtx
+    files:
+      - mediamtx.yml=config/mediamtx.yml
+  - name: multiviewer
+    options:
+      labels:
+        app: mediamtx
+    files:
+      - Caddyfile=config/Caddyfile
+      - index.html=config/index.html
