@@ -33,6 +33,10 @@ spec:
                 matchLabels:
                   app: reader-media-function-efa
               topologyKey: kubernetes.io/hostname
+      # mediamtx-mxl is published as a private GHCR package. PAT lives in
+      # AWS SM; ESO renders demo-app-ghcr-pull (see ghcr-pull-secret.yaml).
+      imagePullSecrets:
+        - name: demo-app-ghcr-pull
       containers:
         - name: mediamtx
           # Upstream image now built + pushed by qvest-digital/mediamtx CI on
