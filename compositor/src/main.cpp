@@ -101,7 +101,7 @@ namespace
         std::string domain;
         ::mxlInstance instance{nullptr};
         ::mxlFlowReader reader{nullptr};
-        ::mxlFlowReaderConfigInfo config{};
+        ::mxlFlowConfigInfo config{};
         GstElement* appsrc{nullptr};
         std::thread thread;
         std::atomic<std::uint64_t> framesPushed{0};
