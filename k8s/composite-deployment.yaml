@@ -64,7 +64,17 @@ spec:
               value: /domain
             - name: MXL_COMPOSITE_OUT
               value: rtsp://mediamtx:8554/composite
-            # Keep in sync with the writer/reader MXL_FLOW_IDS.
+            # Six flows for now — the writer pod's MXL_FLOW_IDS list has
+            # eight entries, but only the first six produce grains
+            # reliably under the current writer-deployment startup
+            # ordering (two of eight `mxl-gst-testsrc` gst pipelines
+            # reach PLAYING but never emit a first grain; needs a
+            # follow-up fix in terraform's writer-deployment.yaml,
+            # probably sequencing the testsrc starts instead of all-at-
+            # once). The compositor lays these out 3x2 in the same
+            # 1280x720 canvas — same tile size, two rows instead of
+            # three. Add the remaining two back once the writer-side
+            # race is sorted.
             - name: MXL_FLOW_IDS
               value: >-
                 5fbec3b1-1b0f-417d-9059-8b94a47197ed
@@ -73,8 +83,6 @@ spec:
                 a1000000-0000-0000-0000-000000000003
                 a1000000-0000-0000-0000-000000000004
                 a1000000-0000-0000-0000-000000000005
-                a1000000-0000-0000-0000-000000000006
-                a1000000-0000-0000-0000-000000000007
           volumeMounts:
             - name: domain-volume
               mountPath: /domain
