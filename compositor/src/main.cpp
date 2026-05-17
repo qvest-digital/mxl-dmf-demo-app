@@ -267,8 +267,22 @@ int main(int argc, char** argv)
         "! clockoverlay font-desc=\"Sans Bold 20\" "
             "time-format=\"%H:%M:%S\" "
             "halignment=right valignment=top color=0xff00ff66 "
-        "! x264enc speed-preset=ultrafast tune=zerolatency bframes=0 key-int-max=30 "
-        "! video/x-h264,profile=baseline "
+        // Quality knobs:
+        //  - speed-preset=faster: still real-time on a single core, but
+        //    gives x264 enough lookahead to make better mode decisions
+        //    than ultrafast. veryfast/faster is the usual broadcast-
+        //    sweet-spot for 720p30.
+        //  - bitrate=6000 (kbps): 4× the x264enc default of 2048, big
+        //    quality bump for 1280x720 with eight detail-rich tiles.
+        //  - bframes=2: better compression efficiency at +1 frame of
+        //    encode latency (negligible vs HLS segment latency).
+        //  - profile=main: enables CABAC + B-frames vs baseline.
+        //  - key-int-max=60: 2 s GOP at 30 fps — matches our HLS
+        //    segment cadence so I-frames align with segment boundaries.
+        "! x264enc speed-preset=faster tune=zerolatency "
+                  "bitrate=6000 vbv-buf-capacity=2000 "
+                  "bframes=2 key-int-max=60 "
+        "! video/x-h264,profile=main "
         // RTSP carries codec frames over RTP, not MPEG-TS. h264parse with
         // config-interval=-1 republishes SPS/PPS on every IDR so a viewer
         // joining mid-stream can decode without waiting for the next key
