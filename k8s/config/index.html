@@ -13,8 +13,6 @@
   #bar .m span.bad  b { color: #ff3030; }
   #stage { position: absolute; top: 22px; left: 0; right: 0; bottom: 0; background: #000; display: flex; align-items: center; justify-content: center; }
   #stage video { width: 100%; height: 100%; background: #000; object-fit: contain; }
-  #foot { position: absolute; bottom: 0; left: 0; right: 0; background: #0a0a0a; border-top: 1px solid #222; padding: 4px 8px; font-size: 10px; color: #666; }
-  #foot a { color: #00aaff; text-decoration: none; margin-right: 12px; }
 </style>
 </head>
 <body>
@@ -28,21 +26,6 @@
   </div>
   <div id="stage">
     <video id="v" muted autoplay playsinline></video>
-  </div>
-  <div id="foot">
-    Server-side 3x3 mosaic of nine MXL/SRT flows. The clock burned into the
-    top-right of the picture is the compositor's wall-clock when the frame
-    was muxed; the clock above is your browser's wall-clock. Subtract them
-    to read HLS+player buffering. Individual tile feeds remain available at
-    <a href="/hls/mxl-stream-native/index.m3u8">mxl-stream-native</a>
-    <a href="/hls/mxl-stream-2/index.m3u8">mxl-stream-2</a>
-    <a href="/hls/mxl-stream-3/index.m3u8">mxl-stream-3</a>
-    <a href="/hls/mxl-stream-4/index.m3u8">mxl-stream-4</a>
-    <a href="/hls/mxl-stream-5/index.m3u8">mxl-stream-5</a>
-    <a href="/hls/mxl-stream-6/index.m3u8">mxl-stream-6</a>
-    <a href="/hls/mxl-stream-7/index.m3u8">mxl-stream-7</a>
-    <a href="/hls/mxl-stream-8/index.m3u8">mxl-stream-8</a>
-    <a href="/hls/sintel/index.m3u8">sintel</a>
   </div>
 
   <script>
