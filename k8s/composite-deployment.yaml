@@ -1,6 +1,6 @@
 ---
 # Multi-flow MXL compositor. Replaces the previous ffmpeg-RTSP pull-9-tiles
-# pod with a single process that reads all eight MXL flows directly from
+# pod with a single process that reads all nine MXL flows directly from
 # /dev/shm via libmxl (zero-copy, no per-flow decode pass), composites them
 # with a GStreamer compositor element, encodes the mosaic once with x264,
 # and pushes the result to mediamtx via RTSP.
@@ -14,13 +14,8 @@
 # "seconds" (encoder backlog) to "microseconds" (EFA jitter + ring-buffer
 # read position).
 #
-# Sintel (SRT-only) is intentionally NOT included in this v1 — adding it
-# means decoding an H.264 stream alongside the raw MXL pipeline, which
-# brings the encoder-backlog problem back for that one tile. We'll wire it
-# in a follow-up that either pushes sintel as a 9th MXL flow or accepts
-# the asymmetry knowingly. Multiviewer landing page still loads
-# /hls/composite/index.m3u8 — same URL, just 8 tiles in a 3x3 grid with
-# the bottom-right slot dark for now.
+# Multiviewer landing page loads /hls/composite/index.m3u8 — nine tiles in
+# a full 3x3 grid.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,11 +59,10 @@ spec:
               value: /domain
             - name: MXL_COMPOSITE_OUT
               value: rtsp://mediamtx:8554/composite
-            # Eight flows — the writer's per-testsrc 500 ms sleep
-            # (writer-deployment.yaml in mxl-dmf-terraform) eliminated
-            # the gst init race that previously left the last two
-            # spawns silent. Layout is 3x3 with the bottom-right slot
-            # dark (room for sintel SRT or a ninth MXL flow later).
+            # Nine flows fill the full 3x3 grid. Keep in sync with the
+            # MXL_FLOW_IDS env on writer + reader deployments in
+            # mxl-dmf-terraform — the reader is the source of truth for
+            # the active flow set.
             - name: MXL_FLOW_IDS
               value: >-
                 5fbec3b1-1b0f-417d-9059-8b94a47197ed
@@ -79,6 +73,7 @@ spec:
                 a1000000-0000-0000-0000-000000000005
                 a1000000-0000-0000-0000-000000000006
                 a1000000-0000-0000-0000-000000000007
+                a1000000-0000-0000-0000-000000000008
           volumeMounts:
             - name: domain-volume
               mountPath: /domain
@@ -92,9 +87,9 @@ spec:
           resources:
             # Each MXL flow reader mmaps the entire grain ring (default
             # ring depth × ~5 MB per 1080p v210 grain ≈ 25-40 MB per
-            # flow). Eight flows × 40 MB = ~320 MB just for the mmaps,
-            # plus gst pipeline buffers (8 appsrcs queueing 2-3 raw
-            # buffers each = another ~80 MB), plus x264's working
+            # flow). Nine flows × 40 MB = ~360 MB just for the mmaps,
+            # plus gst pipeline buffers (9 appsrcs queueing 2-3 raw
+            # buffers each = another ~90 MB), plus x264's working
             # frames + the compositor canvas. 3 Gi tripped OOM almost
             # immediately. 8 Gi gives headroom for the worst-case
             # keyframe burst without leaving the node short.
