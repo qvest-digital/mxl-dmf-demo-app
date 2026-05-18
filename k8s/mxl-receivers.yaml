@@ -1,0 +1,107 @@
+# Nine MxlReceiver CRDs — one per flow the compositor consumes.
+# The mxl-k8s operator picks each up, materializes one MxlFlowMirror
+# per (flow, target-node), and the per-node gateway DaemonSet bridges
+# grains from the writer node to the compositor's node over EFA.
+#
+# podSelector matches the compositor Deployment by role label so each
+# receiver follows the pod across restarts without needing a static
+# Pod UID.
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-1
+spec:
+  flowID: "5fbec3b1-1b0f-417d-9059-8b94a47197ed"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-2
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000001"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-3
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000002"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-4
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000003"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-5
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000004"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-6
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000005"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-7
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000006"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-8
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000007"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: composite-mxl-9
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000008"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl-k8s-demo.qvest-digital.com/role: consumer
