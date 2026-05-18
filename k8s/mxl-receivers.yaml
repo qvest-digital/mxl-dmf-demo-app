@@ -13,7 +13,7 @@ metadata:
   name: composite-mxl-1
 spec:
   flowID: "5fbec3b1-1b0f-417d-9059-8b94a47197ed"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -24,7 +24,7 @@ metadata:
   name: composite-mxl-2
 spec:
   flowID: "a1000000-0000-0000-0000-000000000001"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -35,7 +35,7 @@ metadata:
   name: composite-mxl-3
 spec:
   flowID: "a1000000-0000-0000-0000-000000000002"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -46,7 +46,7 @@ metadata:
   name: composite-mxl-4
 spec:
   flowID: "a1000000-0000-0000-0000-000000000003"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -57,7 +57,7 @@ metadata:
   name: composite-mxl-5
 spec:
   flowID: "a1000000-0000-0000-0000-000000000004"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -68,7 +68,7 @@ metadata:
   name: composite-mxl-6
 spec:
   flowID: "a1000000-0000-0000-0000-000000000005"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -79,7 +79,7 @@ metadata:
   name: composite-mxl-7
 spec:
   flowID: "a1000000-0000-0000-0000-000000000006"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -90,7 +90,7 @@ metadata:
   name: composite-mxl-8
 spec:
   flowID: "a1000000-0000-0000-0000-000000000007"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
@@ -101,7 +101,7 @@ metadata:
   name: composite-mxl-9
 spec:
   flowID: "a1000000-0000-0000-0000-000000000008"
-  provider: efa
+  provider: tcp
   podSelector:
     matchLabels:
       mxl-k8s-demo.qvest-digital.com/role: consumer
