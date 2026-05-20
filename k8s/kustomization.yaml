@@ -7,7 +7,6 @@ resources:
   - mediamtx-service.yaml
   - loop-deployments.yaml
   - composite-deployment.yaml
-  - mxl-receivers.yaml
 
 # Hash-suffixed configmaps: any change to a file under config/ produces
 # a new ConfigMap name, kustomize rewrites the volume reference in the
