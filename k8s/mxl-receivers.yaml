@@ -1,0 +1,111 @@
+# Per-flow consumer intent for the mxl-k8s operator. Each MxlReceiver
+# names one MXL flow UUID; the operator turns it into a MxlFlowMirror
+# per (flow, target-node) and the gateway DaemonSet sets up the
+# libmxl-fabrics handshake against the producer node.
+#
+# podSelector matches every Pod labelled
+# mxl.qvest-digital.com/role=consumer in the default namespace —
+# currently that's the compositor + mediamtx (both co-located on the
+# same node, so they share a single mirror per flow).
+#
+# Producer side: writer-media-function-efa in mxl-dmf-terraform's
+# k8s/base/writer-deployment.yaml, label
+# mxl.qvest-digital.com/role=producer.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-stream-native
+spec:
+  flowID: "5fbec3b1-1b0f-417d-9059-8b94a47197ed"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-1
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000001"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-2
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000002"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-3
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000003"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-4
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000004"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-5
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000005"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-6
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000006"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-7
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000007"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-8
+spec:
+  flowID: "a1000000-0000-0000-0000-000000000008"
+  provider: efa
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
