@@ -4,13 +4,12 @@ metadata:
   name: mediamtx
   labels:
     app: mediamtx
+    mxl.qvest-digital.com/role: consumer
 spec:
   replicas: 1
-  # Recreate: hostPath ties the pod to a specific node, and we co-locate with
-  # the reader-media-function-efa pod which itself uses `strategy: Recreate`
-  # for the same reason. A rolling update would briefly schedule two pods
-  # against the same hostPath on the same node — harmless for the read side,
-  # but keeps the topology tidy.
+  # Recreate: hostPath ties the pod to a specific node; rolling update
+  # would briefly schedule two pods against the same hostPath on the
+  # same node — harmless for the read side but keeps topology tidy.
   strategy:
     type: Recreate
   selector:
@@ -20,48 +19,72 @@ spec:
     metadata:
       labels:
         app: mediamtx
+        # Role label drives the MxlReceiver podSelector. mediamtx-mxl
+        # reads MXL flows directly via libmxl (mxl:///run/mxl/domain/...
+        # static source), so it's a consumer too — sharing the same
+        # mirrors the compositor uses on the same node.
+        mxl.qvest-digital.com/role: consumer
     spec:
-      # Co-locate with the reader pod so we can hostPath-share its
-      # /dev/shm/mxl-domain-reader tmpfs (provisioned in mxl-dmf-terraform via
-      # k8s/base/reader-deployment.yaml). The reader pod has its own
-      # podAntiAffinity against the writer, so this transitively pins us to the
-      # reader's node, which is necessarily distinct from the writer's node.
+      # Co-locate with the compositor: both pods read the same MXL
+      # mirrors from /run/mxl/domain on the same node, and the mxl-k8s
+      # gateway is the one doing the cross-node bridging — not these
+      # pods. Co-location is required because hostPath domain mounts
+      # are per-node; running mediamtx on a different node from the
+      # compositor would give it an empty /run/mxl/domain.
       affinity:
         podAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
-                  app: reader-media-function-efa
+                  app: composite
               topologyKey: kubernetes.io/hostname
-      # mediamtx-mxl is published as a private GHCR package. PAT lives in
-      # AWS SM; ESO renders demo-app-ghcr-pull (see ghcr-pull-secret.yaml).
+      tolerations:
+        - key: "vpc.amazonaws.com/efa"
+          operator: "Exists"
+          effect: "NoSchedule"
+      # mediamtx-mxl is published as a private GHCR package. PAT lives
+      # in AWS SM; ESO renders demo-app-ghcr-pull (see ghcr-pull-secret.yaml).
       imagePullSecrets:
         - name: demo-app-ghcr-pull
+      initContainers:
+        # Same shim as the compositor — mediamtx-mxl calls
+        # mxlCreateFlowReader and would race the agent's mirror
+        # materialization without it.
+        - name: install-intent-shim
+          image: ghcr.io/qvest-digital/mxl-k8s/shim:v1.0.0-rc.3
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: intent-shim
+              mountPath: /shared
       containers:
         - name: mediamtx
-          # Upstream image now built + pushed by qvest-digital/mediamtx CI on
+          # Upstream image built + pushed by qvest-digital/mediamtx CI on
           # the feature/mxl-static-source branch (workflow: mxl-image.yml).
-          # No more local Dockerfile here — this repo only renders manifests.
           image: ghcr.io/qvest-digital/mxl-dmf-demo-app/mediamtx-mxl:latest
           imagePullPolicy: Always
+          env:
+            - name: LD_PRELOAD
+              value: /opt/mxl-intent/libmxl-intent.so
           ports:
             - containerPort: 8888
               name: hls
             - containerPort: 8889
               name: webrtc
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK", "SYS_RESOURCE"]
           volumeMounts:
             - name: config
               mountPath: /mediamtx.yml
               subPath: mediamtx.yml
             - name: mxl-domain
-              mountPath: /domain
-              # Mounted read-write because libmxl's reader-side acquires a
-              # session slot in the flow's shared header (futex / atomics on
-              # the mmap'd file). The reader-container in the reader pod
-              # retains exclusive write access to the data payload via its
-              # EFA-registered memory region; this mount only competes for
-              # the reader-table portion of the shared header.
+              mountPath: /run/mxl/domain
               readOnly: false
+            - name: intent-shim
+              mountPath: /opt/mxl-intent
+              readOnly: true
+            - name: agent-sock
+              mountPath: /run/mxl/agent.sock
           livenessProbe:
             tcpSocket:
               port: 8888
@@ -73,12 +96,10 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:
-            # One ffmpeg libx264 subprocess per active MXL path. With 8 MXL
-            # tiles (+ 1 SRT loop) all live at once, the worst case is 9
-            # concurrent encoders. Idle mediamtx itself is ~125 Mi; each
-            # ffmpeg child is ~400-600 Mi at 1080p with the ultrafast preset
-            # the new mxl-stream-2..8 paths use. Headroom past 9 × 600 Mi
-            # to absorb spikes during muxer restarts.
+            # One ffmpeg libx264 subprocess per active MXL path. With
+            # 8 MXL tiles (+1 SRT loop) all live at once, worst case is
+            # 9 concurrent encoders. Idle mediamtx ~125 Mi; each ffmpeg
+            # child ~400-600 Mi at 1080p with the ultrafast preset.
             requests:
               cpu: "2"
               memory: 2Gi
@@ -86,10 +107,11 @@ spec:
               cpu: "10"
               memory: 8Gi
 
-        # Caddy sidecar replaces the (now deleted) demo-app Go binary: serves
-        # the multiviewer HTML at /, reverse-proxies HLS at /hls/* to mediamtx
-        # on localhost, and rewrites mediamtx's cookieCheck 302 Location
-        # headers so the browser stays on the public origin.
+        # Caddy sidecar replaces the (now deleted) demo-app Go binary:
+        # serves the multiviewer HTML at /, reverse-proxies HLS at
+        # /hls/* to mediamtx on localhost, and rewrites mediamtx's
+        # cookieCheck 302 Location headers so the browser stays on the
+        # public origin.
         - name: caddy
           image: caddy:2-alpine
           args: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
@@ -127,13 +149,19 @@ spec:
         - name: config
           configMap:
             name: mediamtx-config
-        # Same physical tmpfs as the reader pod's /domain. Cross-pod sharing is
-        # only possible because the reader pod uses hostPath (not emptyDir) for
-        # its domain-volume — see mxl-dmf-terraform PR #122.
+        # Per-node MXL domain shared with the mxl-k8s agent + gateway
+        # DaemonSets via hostPath. The agent materializes mirrors here;
+        # mediamtx-mxl's static source reads from this same path.
         - name: mxl-domain
           hostPath:
-            path: /dev/shm/mxl-domain-reader
+            path: /run/mxl/domain
             type: DirectoryOrCreate
+        - name: intent-shim
+          emptyDir: {}
+        - name: agent-sock
+          hostPath:
+            path: /run/mxl/agent.sock
+            type: Socket
         - name: caddy-conf
           configMap:
             name: multiviewer

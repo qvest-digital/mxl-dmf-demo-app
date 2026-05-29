@@ -28,19 +28,17 @@ srt: true
 srtAddress: :8890
 
 paths:
-  # mediamtx reads MXL grains zero-copy from the same /domain
-  # tmpfs the reader-container fills via EFA RDMA. This is the integration
-  # test for the upstream PR qvest-digital/mediamtx#1 (MXL static source).
+  # mediamtx reads MXL grains zero-copy from /run/mxl/domain. The
+  # mxl-k8s gateway DaemonSet materializes the per-flow mirror at that
+  # path on this node; the producer side runs on a different node and
+  # writes into its own /run/mxl/domain — the gateway bridges them.
   #
-  # Eight MXL paths corresponding to the eight UUIDs in the reader/writer
-  # deployments' MXL_FLOW_IDS env var. The first one is the legacy
-  # single-flow demo (kept always-on); the others are added for the 8-tile
-  # MXL showcase and stay on-demand so they don't burn CPU until a viewer
-  # actually requests them — and so they fail closed (404 → tile OFFLINE)
-  # in the window before the terraform-managed reader/writer pods are
-  # updated to multi-flow mode.
+  # Eight MXL paths corresponding to the eight UUIDs in the writer
+  # deployment's MXL_FLOW_IDS env var. The first one is the legacy
+  # single-flow demo (kept always-on); the others stay on-demand so
+  # they don't burn CPU until a viewer actually requests them.
   mxl-stream-native:
-    source: mxl:///domain/5fbec3b1-1b0f-417d-9059-8b94a47197ed
+    source: mxl:///run/mxl/domain/5fbec3b1-1b0f-417d-9059-8b94a47197ed
     # Keep the libmxl reader + ffmpeg encoder running 24/7. With
     # sourceOnDemand=true, the first viewer paid ~1-2s of cold-start
     # latency on every transition from idle to active: libx264 init +
@@ -51,49 +49,49 @@ paths:
     mxlH264Bitrate: 5000000
 
   mxl-stream-2:
-    source: mxl:///domain/a1000000-0000-0000-0000-000000000001
+    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000001
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-stream-3:
-    source: mxl:///domain/a1000000-0000-0000-0000-000000000002
+    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000002
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-stream-4:
-    source: mxl:///domain/a1000000-0000-0000-0000-000000000003
+    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000003
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-stream-5:
-    source: mxl:///domain/a1000000-0000-0000-0000-000000000004
+    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000004
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-stream-6:
-    source: mxl:///domain/a1000000-0000-0000-0000-000000000005
+    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000005
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-stream-7:
-    source: mxl:///domain/a1000000-0000-0000-0000-000000000006
+    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000006
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-stream-8:
-    source: mxl:///domain/a1000000-0000-0000-0000-000000000007
+    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000007
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high

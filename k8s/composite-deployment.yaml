@@ -1,27 +1,27 @@
 ---
-# Multi-flow MXL compositor. Replaces the previous ffmpeg-RTSP pull-9-tiles
-# pod with a single process that reads all nine MXL flows directly from
-# /dev/shm via libmxl (zero-copy, no per-flow decode pass), composites them
-# with a GStreamer compositor element, encodes the mosaic once with x264,
-# and pushes the result to mediamtx via RTSP.
+# Multi-flow MXL compositor — consumer side of the mxl-k8s control plane.
 #
-# Why this matters: under the old design every flow was decoded out of
-# mediamtx's HLS-bound H.264 encoder, and each path's encoder had its own
-# backlog — that's what caused the per-tile burned-in clocks to disagree
-# by seconds. Reading raw MXL grains directly bypasses all of that, so the
-# clocks burned in by the writer pod (mxl-gst-testsrc's clockoverlay) reach
-# the compositor with the same age across every flow. Spread shrinks from
-# "seconds" (encoder backlog) to "microseconds" (EFA jitter + ring-buffer
-# read position).
+# Reads all nine MXL flows from /run/mxl/domain via libmxl (zero-copy,
+# no per-flow decode pass), composites with a GStreamer compositor
+# element, encodes the mosaic once with x264, pushes the result to
+# mediamtx via RTSP.
 #
-# Multiviewer landing page loads /hls/composite/index.m3u8 — nine tiles in
-# a full 3x3 grid.
+# Where the flows come from:
+#   - Writer pod (mxl-dmf-terraform) writes flows to /run/mxl/domain on
+#     its node.
+#   - mxl-k8s gateway DaemonSet bridges the flow grains across nodes
+#     via libmxl-fabrics (EFA provider).
+#   - mxl-k8s agent DaemonSet on this node materializes the mirror at
+#     /run/mxl/domain, so this pod reads from local tmpfs.
+#   - MxlReceiver CRs (mxl-receivers.yaml) express per-flow intent;
+#     the operator reconciles them into MxlFlowMirror resources.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: composite
   labels:
     app: composite
+    mxl.qvest-digital.com/role: consumer
 spec:
   replicas: 1
   selector:
@@ -31,38 +31,49 @@ spec:
     metadata:
       labels:
         app: composite
+        # Role label drives the MxlReceiver podSelector + the writer
+        # pod's podAntiAffinity so the gateway has to bridge two nodes.
+        mxl.qvest-digital.com/role: consumer
     spec:
-      # Co-located with mediamtx → reader → /dev/shm/mxl-domain-reader. The
-      # hostPath mount below shares the exact same RDMA-backed tmpfs region
-      # the reader-container writes into.
+      # Must land on a different node than the producer so the
+      # gateway's cross-node bridge actually fires.
       affinity:
-        podAffinity:
+        podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
-                  app: reader-media-function-efa
+                  mxl.qvest-digital.com/role: producer
               topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
           effect: "NoSchedule"
-      # GHCR image — same registry+auth as mediamtx-mxl, so reuse the
-      # ExternalSecret-rendered secret.
       imagePullSecrets:
         - name: demo-app-ghcr-pull
+      initContainers:
+        # Drops libmxl-intent.so onto the shared emptyDir so the main
+        # container can LD_PRELOAD it. The shim makes the first
+        # mxlCreateFlowReader call block on the agent's "flow available
+        # locally" signal instead of failing with FLOW_NOT_FOUND when the
+        # operator hasn't materialized the MxlFlowMirror yet.
+        - name: install-intent-shim
+          image: ghcr.io/qvest-digital/mxl-k8s/shim:v1.0.0-rc.3
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: intent-shim
+              mountPath: /shared
       containers:
         - name: compositor
           image: ghcr.io/qvest-digital/mxl-dmf-demo-app/compositor:latest
           imagePullPolicy: Always
           env:
             - name: MXL_DOMAIN
-              value: /domain
+              value: /run/mxl/domain
             - name: MXL_COMPOSITE_OUT
               value: rtsp://mediamtx:8554/composite
-            # Nine flows fill the full 3x3 grid. Keep in sync with the
-            # MXL_FLOW_IDS env on writer + reader deployments in
-            # mxl-dmf-terraform — the reader is the source of truth for
-            # the active flow set.
+            # MXL_FLOW_IDS aligns with the MxlReceiver CRDs (one per
+            # entry). Keep in sync with the writer's MXL_FLOW_IDS in
+            # mxl-dmf-terraform.
             - name: MXL_FLOW_IDS
               value: >-
                 5fbec3b1-1b0f-417d-9059-8b94a47197ed
@@ -74,25 +85,33 @@ spec:
                 a1000000-0000-0000-0000-000000000006
                 a1000000-0000-0000-0000-000000000007
                 a1000000-0000-0000-0000-000000000008
+            # Shim must be loaded before libmxl so the
+            # mxlCreateFlowReader entry point gets intercepted.
+            - name: LD_PRELOAD
+              value: /opt/mxl-intent/libmxl-intent.so
+          securityContext:
+            # libmxl mlocks tmpfs grain pages on the reader side too;
+            # without IPC_LOCK the verbs path fails to pin via ibv_reg_mr.
+            capabilities:
+              add: ["IPC_LOCK", "SYS_RESOURCE"]
           volumeMounts:
             - name: domain-volume
-              mountPath: /domain
-              # Read-only; libmxl-side acquires a session slot in the flow's
-              # shared header for atomics, but never writes payload bytes.
-              # Match the mediamtx mount semantics (read-write there only so
-              # libmxl's reader-table atomics work). Sticking with rw here
-              # for the same reason — flip to false once libmxl gains an
-              # explicit read-only reader API.
+              mountPath: /run/mxl/domain
+              # libmxl-side acquires a session slot in the flow's shared
+              # header (futex/atomics) on attach; keep rw so the
+              # reader-table mutation works.
               readOnly: false
+            - name: intent-shim
+              mountPath: /opt/mxl-intent
+              readOnly: true
+            # Unix socket the libmxl-intent.so shim uses to talk to the
+            # agent DaemonSet on this node.
+            - name: agent-sock
+              mountPath: /run/mxl/agent.sock
           resources:
-            # Each MXL flow reader mmaps the entire grain ring (default
-            # ring depth × ~5 MB per 1080p v210 grain ≈ 25-40 MB per
-            # flow). Nine flows × 40 MB = ~360 MB just for the mmaps,
-            # plus gst pipeline buffers (9 appsrcs queueing 2-3 raw
-            # buffers each = another ~90 MB), plus x264's working
-            # frames + the compositor canvas. 3 Gi tripped OOM almost
-            # immediately. 8 Gi gives headroom for the worst-case
-            # keyframe burst without leaving the node short.
+            # Worst-case mmap footprint per flow ≈ 40 MB; nine flows
+            # plus gst pipeline buffers plus x264 working set fit in
+            # ~2 Gi steady, 8 Gi covers keyframe bursts.
             requests:
               cpu: "2"
               memory: 2Gi
@@ -100,10 +119,17 @@ spec:
               cpu: "8"
               memory: 8Gi
       volumes:
-        # Same physical tmpfs the reader-container writes into. hostPath
-        # mount in reader-deployment.yaml + mediamtx-deployment.yaml gives
-        # three pods on this node a shared view of /dev/shm/mxl-domain-reader.
+        # mxl-k8s agent + gateway DaemonSets share this same path. The
+        # agent watches it via fanotify on the writer node and publishes
+        # MxlFlow CRs; on the consumer node the gateway materializes the
+        # mirror at this path.
         - name: domain-volume
           hostPath:
-            path: /dev/shm/mxl-domain-reader
+            path: /run/mxl/domain
             type: DirectoryOrCreate
+        - name: intent-shim
+          emptyDir: {}
+        - name: agent-sock
+          hostPath:
+            path: /run/mxl/agent.sock
+            type: Socket
