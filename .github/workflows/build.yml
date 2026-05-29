@@ -9,6 +9,14 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
+    # Same code path as push: render the manifests + push them as an OCI
+    # artifact tagged pr-<N> so terraform PR envs can repoint their
+    # demo-app OCIRepository at the matching consumer-side spec.
+    paths:
+      - "k8s/**"
+      - ".github/workflows/build.yml"
 
 permissions:
   contents: read
@@ -51,17 +59,26 @@ jobs:
         shell: bash
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
+          REPO="${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests"
+
           flux push artifact \
-            "oci://${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests:${SHORT_SHA}" \
+            "oci://${REPO}:${SHORT_SHA}" \
             --path="/tmp/k8s-rendered" \
             --source="$(git config --get remote.origin.url)" \
             --revision="${GITHUB_REF_NAME}@sha1:${GITHUB_SHA}" \
             --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
 
+          # main push → also :latest (default consumer ref).
+          # PR        → also :pr-<N> so terraform PR envs can pin.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+          else
+            TAG="latest"
+          fi
           flux tag artifact \
-            "oci://${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests:${SHORT_SHA}" \
-            --tag latest \
+            "oci://${REPO}:${SHORT_SHA}" \
+            --tag "${TAG}" \
             --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
 
           echo "Pushed: mxl-dmf-demo-app-manifests:${SHORT_SHA}"
-          echo "Tagged: mxl-dmf-demo-app-manifests:latest"
+          echo "Tagged: mxl-dmf-demo-app-manifests:${TAG}"
