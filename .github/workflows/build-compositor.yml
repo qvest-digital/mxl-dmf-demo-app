@@ -11,6 +11,11 @@ on:
     paths:
       - "compositor/**"
       - ".github/workflows/build-compositor.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "compositor/**"
+      - ".github/workflows/build-compositor.yml"
   workflow_dispatch:
 
 permissions:
@@ -38,7 +43,7 @@ jobs:
       - name: Set up buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & push
+      - name: Build & push (regular)
         uses: docker/build-push-action@v6
         with:
           context: compositor
@@ -49,3 +54,17 @@ jobs:
             ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # mxl-k8s-compatible variant: layered on jonasohland/mxl so the
+      # libmxl runtime matches the gateway. Published under -mxlk8s suffix.
+      - name: Build & push (mxl-k8s)
+        uses: docker/build-push-action@v6
+        with:
+          context: compositor
+          file: compositor/Dockerfile.mxlk8s
+          push: true
+          tags: |
+            ${{ env.IMAGE }}-mxlk8s:${{ github.sha }}
+            ${{ env.IMAGE }}-mxlk8s:latest
+          cache-from: type=gha,scope=mxlk8s
+          cache-to: type=gha,scope=mxlk8s,mode=max

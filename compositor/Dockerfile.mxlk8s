@@ -1,0 +1,61 @@
+# mxl-k8s-compatible compositor build. Layers the compositor binary on
+# top of jonasohland/mxl:3518992-fabrics-efa so the libmxl.so it dlopen's
+# at runtime is byte-identical to the one the mxl-k8s gateway uses to
+# materialize mirrors. The vendored headers under compositor/vendor/mxl
+# already track upstream commit 3518992 (header diff with jonasohland's
+# build is empty), so the C ABI compositor was compiled against matches
+# the .so it loads.
+#
+# Why a separate file from the regular Dockerfile: the regular compositor
+# image is built FROM ghcr.io/qvest-digital/mxl-base, which packages this
+# repo's downstream libmxl (5703b41 + custom shm/fabric patches). That
+# image's libmxl.so is ABI-compatible with our headers in theory, but
+# does not match what the mxl-k8s gateway writes — reading mirror flow
+# files written by jonasohland's libmxl through this repo's libmxl
+# returns MXL_ERR_UNKNOWN (code 1) on mxlCreateFlowReader. Aligning on
+# jonasohland's runtime fixes that.
+
+# ── Stage 1: build the compositor binary ────────────────────────────────────
+FROM jonasohland/mxl:3518992-fabrics-efa AS build
+
+USER 0:0
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        pkg-config \
+        libgstreamer1.0-dev \
+        libgstreamer-plugins-base1.0-dev \
+        libglib2.0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY CMakeLists.txt /src/
+COPY vendor /src/vendor/
+COPY src /src/src/
+
+RUN cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build /src/build --parallel \
+ && cmake --install /src/build --prefix /opt/mxl-compositor
+
+# ── Stage 2: slim runtime on the same base, so libmxl.so matches gateway ────
+FROM jonasohland/mxl:3518992-fabrics-efa
+
+USER 0:0
+ENV DEBIAN_FRONTEND=noninteractive
+# Pipeline plugins: compositor (good), x264enc (ugly), mpegtsmux (bad),
+# rtspclientsink (bad / rs-rtsp). libav for hardened muxer support.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gstreamer1.0-plugins-base \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-plugins-ugly \
+        gstreamer1.0-libav \
+        gstreamer1.0-rtsp \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /opt/mxl-compositor/bin/mxl-multi-compositor /usr/bin/
+
+USER mxl
+WORKDIR /home/mxl
+ENTRYPOINT ["/usr/bin/mxl-multi-compositor"]
