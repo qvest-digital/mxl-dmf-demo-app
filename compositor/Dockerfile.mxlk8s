@@ -1,22 +1,22 @@
-# mxl-k8s-compatible compositor build. Layers the compositor binary on
-# top of jonasohland/mxl:3518992-fabrics-efa so the libmxl.so it dlopen's
-# at runtime is byte-identical to the one the mxl-k8s gateway uses to
-# materialize mirrors. The vendored headers under compositor/vendor/mxl
-# already track upstream commit 3518992 (header diff with jonasohland's
-# build is empty), so the C ABI compositor was compiled against matches
-# the .so it loads.
+# mxl-k8s-compatible compositor build. Pins libmxl + libfabric to the
+# same canonical qvest-digital build the mxl-k8s gateway loads so the
+# .so the compositor dlopens at runtime is byte-identical to the one
+# the gateway writes mirror flow files with — no MXL_ERR_UNKNOWN on
+# mxlCreateFlowReader.
 #
-# Why a separate file from the regular Dockerfile: the regular compositor
-# image is built FROM ghcr.io/qvest-digital/mxl-base, which packages this
-# repo's downstream libmxl (5703b41 + custom shm/fabric patches). That
-# image's libmxl.so is ABI-compatible with our headers in theory, but
-# does not match what the mxl-k8s gateway writes — reading mirror flow
-# files written by jonasohland's libmxl through this repo's libmxl
-# returns MXL_ERR_UNKNOWN (code 1) on mxlCreateFlowReader. Aligning on
-# jonasohland's runtime fixes that.
+# Base: ghcr.io/qvest-digital/go-mxl-{builder,runtime}:1.0.0-rc.5
+#   The go-mxl release pipeline (qvest-digital/go-mxl#47, #49) builds
+#   libfabric + rdma-core from upstream with the flag set that
+#   maximises provider coverage (efa, verbs, tcp, ...) and ships them
+#   alongside libmxl + libmxl-fabrics under /usr/lib. mxl-k8s gateway
+#   (docker/gateway.Dockerfile) uses the same pair, so compositor +
+#   gateway end up with byte-identical libmxl.so + libfabric.so.
+#
+# Tag bump policy: keep this in sync with mxl-k8s gateway's
+# ARG GO_MXL_TAG, currently 1.0.0-rc.5.
 
 # ── Stage 1: build the compositor binary ────────────────────────────────────
-FROM jonasohland/mxl:3518992-fabrics-efa AS build
+FROM ghcr.io/qvest-digital/go-mxl-builder:1.0.0-rc.5 AS build
 
 USER 0:0
 ENV DEBIAN_FRONTEND=noninteractive
@@ -38,8 +38,8 @@ RUN cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release \
  && cmake --build /src/build --parallel \
  && cmake --install /src/build --prefix /opt/mxl-compositor
 
-# ── Stage 2: slim runtime on the same base, so libmxl.so matches gateway ────
-FROM jonasohland/mxl:3518992-fabrics-efa
+# ── Stage 2: slim runtime on the matching runtime image ────────────────────
+FROM ghcr.io/qvest-digital/go-mxl-runtime:1.0.0-rc.5
 
 USER 0:0
 ENV DEBIAN_FRONTEND=noninteractive
@@ -56,6 +56,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=build /opt/mxl-compositor/bin/mxl-multi-compositor /usr/bin/
 
-USER mxl
 WORKDIR /home/mxl
 ENTRYPOINT ["/usr/bin/mxl-multi-compositor"]
