@@ -8,9 +8,10 @@
 #   The go-mxl release pipeline (qvest-digital/go-mxl#47, #49) builds
 #   libfabric + rdma-core from upstream with the flag set that
 #   maximises provider coverage (efa, verbs, tcp, ...) and ships them
-#   alongside libmxl + libmxl-fabrics under /usr/lib. mxl-k8s gateway
-#   (docker/gateway.Dockerfile) uses the same pair, so compositor +
-#   gateway end up with byte-identical libmxl.so + libfabric.so.
+#   alongside libmxl + libmxl-fabrics under /opt/libmxl and
+#   /opt/libfabric. mxl-k8s gateway (docker/gateway.Dockerfile) uses
+#   the same pair, so compositor + gateway end up with byte-identical
+#   libmxl.so + libfabric.so.
 #
 # Tag bump policy: keep this in sync with mxl-k8s gateway's
 # ARG GO_MXL_TAG, currently 1.0.0-rc.5.
@@ -34,7 +35,12 @@ COPY CMakeLists.txt /src/
 COPY vendor /src/vendor/
 COPY src /src/src/
 
+# libmxl lives under /opt/libmxl in the go-mxl builder image — point
+# the linker at it via CMAKE_LIBRARY_PATH so the bare `-lmxl` in
+# CMakeLists.txt resolves. The runtime image already has /opt/libmxl
+# on LD_LIBRARY_PATH, so the binary loads the same .so at runtime.
 RUN cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_LIBRARY_PATH=/opt/libmxl/lib \
  && cmake --build /src/build --parallel \
  && cmake --install /src/build --prefix /opt/mxl-compositor
 
