@@ -30,17 +30,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libglib2.0-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# libmxl lives under /opt/libmxl in the go-mxl-builder image, but the
+# compositor CMakeLists.txt passes `mxl` straight to the linker
+# (target_link_libraries(... mxl ...)) and bare -lmxl only searches the
+# standard system dirs. Drop a symlink so ld finds it without touching
+# upstream CMake. Runtime image already has /opt/libmxl on
+# LD_LIBRARY_PATH so the binary loads the same .so at runtime.
+RUN ln -s /opt/libmxl/lib/libmxl.so /usr/lib/x86_64-linux-gnu/libmxl.so
+
 WORKDIR /src
 COPY CMakeLists.txt /src/
 COPY vendor /src/vendor/
 COPY src /src/src/
 
-# libmxl lives under /opt/libmxl in the go-mxl builder image — point
-# the linker at it via CMAKE_LIBRARY_PATH so the bare `-lmxl` in
-# CMakeLists.txt resolves. The runtime image already has /opt/libmxl
-# on LD_LIBRARY_PATH, so the binary loads the same .so at runtime.
 RUN cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_LIBRARY_PATH=/opt/libmxl/lib \
  && cmake --build /src/build --parallel \
  && cmake --install /src/build --prefix /opt/mxl-compositor
 
