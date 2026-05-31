@@ -4,7 +4,7 @@
 # the gateway writes mirror flow files with — no MXL_ERR_UNKNOWN on
 # mxlCreateFlowReader.
 #
-# Base: ghcr.io/qvest-digital/go-mxl-{builder,runtime}:1.0.0-rc.5
+# Base: ghcr.io/qvest-digital/go-mxl-{builder,runtime}:1.0.0-rc.8
 #   The go-mxl release pipeline (qvest-digital/go-mxl#47, #49) builds
 #   libfabric + rdma-core from upstream with the flag set that
 #   maximises provider coverage (efa, verbs, tcp, ...) and ships them
@@ -13,10 +13,10 @@
 #   gateway end up with byte-identical libmxl.so + libfabric.so.
 #
 # Tag bump policy: keep this in sync with mxl-k8s gateway's
-# ARG GO_MXL_TAG, currently 1.0.0-rc.5.
+# ARG GO_MXL_TAG, currently 1.0.0-rc.8.
 
 # ── Stage 1: build the compositor binary ────────────────────────────────────
-FROM ghcr.io/qvest-digital/go-mxl-builder:1.0.0-rc.5 AS build
+FROM ghcr.io/qvest-digital/go-mxl-builder:1.0.0-rc.8 AS build
 
 USER 0:0
 ENV DEBIAN_FRONTEND=noninteractive
@@ -39,7 +39,7 @@ RUN cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release \
  && cmake --install /src/build --prefix /opt/mxl-compositor
 
 # ── Stage 2: slim runtime on the matching runtime image ────────────────────
-FROM ghcr.io/qvest-digital/go-mxl-runtime:1.0.0-rc.5
+FROM ghcr.io/qvest-digital/go-mxl-runtime:1.0.0-rc.8
 
 USER 0:0
 ENV DEBIAN_FRONTEND=noninteractive
