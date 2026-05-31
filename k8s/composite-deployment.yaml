@@ -64,7 +64,7 @@ spec:
               mountPath: /shared
       containers:
         - name: compositor
-          image: ghcr.io/qvest-digital/mxl-dmf-demo-app/compositor:latest
+          image: ghcr.io/qvest-digital/mxl-dmf-demo-app/compositor-mxlk8s:latest
           imagePullPolicy: Always
           env:
             - name: MXL_DOMAIN
