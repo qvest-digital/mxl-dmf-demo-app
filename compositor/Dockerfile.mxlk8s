@@ -34,6 +34,13 @@ COPY CMakeLists.txt /src/
 COPY vendor /src/vendor/
 COPY src /src/src/
 
+# go-mxl-builder:1.0.0-rc.8 ships libmxl under /opt/libmxl/lib only — no
+# multiarch symlink in /usr/lib/x86_64-linux-gnu, so `-lmxl` does not
+# resolve. rc.5 happened to ship the symlink. Restore it here so the
+# build keeps working across go-mxl tags.
+RUN ln -s /opt/libmxl/lib/libmxl.so /usr/lib/x86_64-linux-gnu/libmxl.so \
+ && ln -s /opt/libmxl/lib/libmxl-fabrics.so /usr/lib/x86_64-linux-gnu/libmxl-fabrics.so
+
 RUN cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release \
  && cmake --build /src/build --parallel \
  && cmake --install /src/build --prefix /opt/mxl-compositor
