@@ -7,6 +7,7 @@ resources:
   - mediamtx-service.yaml
   - loop-deployments.yaml
   - composite-deployment.yaml
+  - txdarwin-output-viewer.yaml
   - mxl-receivers.yaml
 
 # Hash-suffixed configmaps: any change to a file under config/ produces

@@ -109,3 +109,17 @@ spec:
   podSelector:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
+---
+# txDarwin output flow (produced by txdarwin-mxl-pipeline in
+# mxl-dmf-txdarwin-flux). Consumed by txdarwin-output-viewer, which
+# RTSP-publishes it to mediamtx path `txdarwin-out`.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: txdarwin-output
+spec:
+  flowID: "c3000000-0000-0000-0000-000000000001"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
