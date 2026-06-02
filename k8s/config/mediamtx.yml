@@ -113,3 +113,9 @@ paths:
   # The multiviewer landing page plays /hls/composite/index.m3u8 directly so
   # the demo is one shareable URL with no per-tile JS player pool.
   composite: {}
+
+  # txDarwin output. Publisher-mode (no source: line) — the
+  # txdarwin-output-viewer pod (k8s/txdarwin-output-viewer.yaml) reads MXL
+  # flow c3000000 and RTSP-publishes the encoded result here. Played at
+  # /hls/txdarwin-out/index.m3u8 (UI source toggle in config/index.html).
+  txdarwin-out: {}

@@ -1,0 +1,105 @@
+---
+# Single-flow viewer for the txDarwin output flow (c3000000).
+#
+# txDarwin (mxl-dmf-txdarwin-flux) reads an MXL input flow, processes it,
+# and writes its result as flow c3000000-…-000001 into /run/mxl/domain.
+# This pod reads that one flow via libmxl (zero-copy), encodes it with the
+# same GStreamer x264 pipeline the composite uses, and RTSP-publishes it to
+# mediamtx path `txdarwin-out`.
+#
+# Why RTSP-publish and not a mediamtx `mxl://` source path: the demo plays
+# lowLatency HLS, which needs SPS/PPS repeated in-band. The gst encoder here
+# uses `h264parse config-interval=-1` (same as composite) so it works in
+# lowLatency HLS; the mediamtx mxl:// source's internal encoder does not and
+# crashes the LL muxer ("H264 parameters not provided").
+#
+# c3000000 reaches this node via the MxlReceiver in mxl-receivers.yaml
+# (role=consumer); the mxl-k8s gateway mirrors it here (or it is already
+# local when co-located with txDarwin).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: txdarwin-output-viewer
+  labels:
+    app: txdarwin-output-viewer
+    mxl.qvest-digital.com/role: consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: txdarwin-output-viewer
+  template:
+    metadata:
+      labels:
+        app: txdarwin-output-viewer
+        mxl.qvest-digital.com/role: consumer
+    spec:
+      # Land on a non-producer node (same placement rule as the composite),
+      # so the gateway bridges c3000000 across nodes like the other flows.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  mxl.qvest-digital.com/role: producer
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: "vpc.amazonaws.com/efa"
+          operator: "Exists"
+          effect: "NoSchedule"
+      imagePullSecrets:
+        - name: demo-app-ghcr-pull
+      initContainers:
+        - name: install-intent-shim
+          image: ghcr.io/qvest-digital/mxl-k8s/shim:v1.0.0-rc.3
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: intent-shim
+              mountPath: /shared
+      containers:
+        - name: viewer
+          image: ghcr.io/qvest-digital/mxl-dmf-demo-app/compositor-mxlk8s:latest
+          imagePullPolicy: Always
+          env:
+            - name: MXL_DOMAIN
+              value: /run/mxl/domain
+            - name: MXL_COMPOSITE_OUT
+              value: rtsp://mediamtx:8554/txdarwin-out
+            # Single flow: txDarwin's output. The compositor renders a
+            # one-tile output when MXL_FLOW_IDS has a single entry.
+            - name: MXL_FLOW_IDS
+              value: "c3000000-0000-0000-0000-000000000001"
+            - name: LD_PRELOAD
+              value: /opt/mxl-intent/libmxl-intent.so
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK", "SYS_RESOURCE"]
+          volumeMounts:
+            - name: domain-volume
+              mountPath: /run/mxl/domain
+              readOnly: false
+            - name: intent-shim
+              mountPath: /opt/mxl-intent
+              readOnly: true
+            - name: agent-sock
+              mountPath: /run/mxl/agent.sock
+          resources:
+            # One flow + a single x264 encode — far lighter than the 9-flow
+            # composite.
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+      volumes:
+        - name: domain-volume
+          hostPath:
+            path: /run/mxl/domain
+            type: DirectoryOrCreate
+        - name: intent-shim
+          emptyDir: {}
+        - name: agent-sock
+          hostPath:
+            path: /run/mxl/agent.sock
+            type: Socket
