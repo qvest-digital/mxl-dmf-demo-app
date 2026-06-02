@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>MXL DMF</title>
+<title>MXL DMF COMPOSITE</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -11,6 +11,7 @@
   #bar .m span b { color: #00cc00; }
   #bar .m span.warn b { color: #ffaa00; }
   #bar .m span.bad  b { color: #ff3030; }
+  #bar .brand { display: flex; align-items: center; gap: 14px; }
   #src { display: flex; gap: 6px; }
   #src button { background: #111; color: #888; border: 1px solid #333; font: inherit; text-transform: uppercase; letter-spacing: 1px; padding: 1px 8px; cursor: pointer; }
   #src button.active { color: #00ff00; border-color: #00cc00; }
@@ -20,9 +21,12 @@
 </head>
 <body>
   <div id="bar">
-    <div id="src">
-      <button data-path="composite" class="active">Composite</button>
-      <button data-path="txdarwin-out">txDarwin Out</button>
+    <div class="brand">
+      <span>MXL DMF COMPOSITE</span>
+      <div id="src">
+        <button data-path="composite" class="active">Composite</button>
+        <button data-path="txdarwin-out">txDarwin Out</button>
+      </div>
     </div>
     <div class="m">
       <span>HLS LAG <b id="hls-lag">--</b> ms</span>
