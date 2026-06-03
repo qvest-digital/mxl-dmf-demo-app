@@ -129,6 +129,14 @@ namespace
         ::g_object_set(G_OBJECT(w->appsrc), "caps", caps, nullptr);
         ::gst_caps_unref(caps);
 
+        // Consecutive failed reads. A burst means either the flow was torn
+        // down (FLOW_INVALID) or our cursor desynced from a live flow whose
+        // grain index jumped — txDarwin switching its input flow makes the
+        // writer's c3000000 head leap. Both wedge the worker at 0 fps under
+        // the original realign-only-on-FLOW_INVALID logic; track misses so we
+        // recover either way without needing a pod restart.
+        std::uint32_t consecutiveMisses = 0;
+
         while (!g_exit.load(std::memory_order_relaxed))
         {
             ::mxlGrainInfo info{};
@@ -140,16 +148,44 @@ namespace
             if (ret != MXL_STATUS_OK)
             {
                 w->framesMissed.fetch_add(1, std::memory_order_relaxed);
+                ++consecutiveMisses;
                 if (ret == MXL_ERR_FLOW_INVALID)
                 {
-                    // Flow disappeared (writer restarted, RDMA pair reset).
-                    // Realign to current head and try again next tick.
+                    // Flow was torn down / recreated (writer or full txDarwin
+                    // restart) and the old reader handle is dead. Once the flow
+                    // is back, release the stale reader and open a fresh one,
+                    // then realign to the new head.
+                    bool active = false;
+                    if (::mxlIsFlowActive(w->instance, w->flowId.c_str(), &active) == MXL_STATUS_OK && active)
+                    {
+                        ::mxlReleaseFlowReader(w->instance, w->reader);
+                        w->reader = nullptr;
+                        if (::mxlCreateFlowReader(w->instance, w->flowId.c_str(), "", &w->reader) == MXL_STATUS_OK)
+                        {
+                            ::mxlFlowReaderGetConfigInfo(w->reader, &w->config);
+                            cursor.realign(::mxlGetTime());
+                            consecutiveMisses = 0;
+                            g_print("[%zu] %s reader re-opened after FLOW_INVALID\n",
+                                w->index, w->flowId.c_str());
+                        }
+                    }
+                }
+                else if (consecutiveMisses >= 10)
+                {
+                    // Flow is alive but grains stopped arriving — our cursor
+                    // desynced from a head that jumped (txDarwin switched its
+                    // input flow, so the writer's index leapt). Realign to the
+                    // live head instead of wedging at 0 fps.
                     cursor.realign(::mxlGetTime());
+                    consecutiveMisses = 0;
+                    g_print("[%zu] %s cursor realigned after sustained misses\n",
+                        w->index, w->flowId.c_str());
                 }
                 // Tiny backoff so a dead flow doesn't burn CPU.
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
+            consecutiveMisses = 0;
 
             if (info.validSlices < info.totalSlices || (info.flags & MXL_GRAIN_FLAG_INVALID) != 0)
             {
