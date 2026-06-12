@@ -5,8 +5,8 @@ name: Push manifests
 # by qvest-digital/mxl-dmf-demo CI. All we do here is render the k8s
 # manifests and push them as an OCI artifact for Flux to reconcile.
 #
-# PR env dispatch (triggered by mxl-dmf-terraform cd-pr-feature-up.yml):
-#   workflow_dispatch with pr_env=pr-185 + ref=feature/my-feature
+# PR env integration (called by mxl-dmf-terraform cd-pr-feature-up.yml):
+#   workflow_call with pr_env=pr-185 + ref=feature/my-feature
 #   → checks out the feature branch, pushes manifests, tags as pr-185-latest
 
 on:
@@ -31,6 +31,18 @@ on:
         description: "Git ref to checkout — only used when pr_env is set"
         required: false
         default: "main"
+  workflow_call:
+    inputs:
+      pr_env:
+        description: "PR env name (e.g. pr-185) — if set, builds from 'ref' and tags as <pr_env>-latest"
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Git ref to checkout — only used when pr_env is set"
+        required: false
+        type: string
+        default: "main"
 
 permissions:
   contents: read
@@ -46,7 +58,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -74,7 +86,7 @@ jobs:
       - name: Push k8s manifests as OCI artifact
         shell: bash
         env:
-          PR_ENV: ${{ github.event.inputs.pr_env }}
+          PR_ENV: ${{ inputs.pr_env }}
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
           REPO="${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests"
@@ -89,7 +101,7 @@ jobs:
           echo "Pushed: mxl-dmf-demo-app-manifests:${SHORT_SHA}"
 
           if [ -n "$PR_ENV" ]; then
-            # Dispatched by terraform PR env — tag as <pr_env>-latest
+            # Called by terraform PR env — tag as <pr_env>-latest.
             flux tag artifact \
               "oci://${REPO}:${SHORT_SHA}" \
               --tag "${PR_ENV}-latest" \
