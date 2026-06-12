@@ -4,6 +4,10 @@ name: Push manifests
 # qvest-digital/mediamtx CI (feature/mxl-static-source); libmxl is published
 # by qvest-digital/mxl-dmf-demo CI. All we do here is render the k8s
 # manifests and push them as an OCI artifact for Flux to reconcile.
+#
+# PR env integration (called by mxl-dmf-terraform cd-pr-feature-up.yml):
+#   workflow_call with pr_env=pr-185 + ref=feature/my-feature
+#   → checks out the feature branch, pushes manifests, tags as pr-185-latest
 
 on:
   push:
@@ -17,6 +21,28 @@ on:
     paths:
       - "k8s/**"
       - ".github/workflows/build.yml"
+  workflow_dispatch:
+    inputs:
+      pr_env:
+        description: "PR env name (e.g. pr-185) — if set, builds from 'ref' and tags as <pr_env>-latest"
+        required: false
+        default: ""
+      ref:
+        description: "Git ref to checkout — only used when pr_env is set"
+        required: false
+        default: "main"
+  workflow_call:
+    inputs:
+      pr_env:
+        description: "PR env name (e.g. pr-185) — if set, builds from 'ref' and tags as <pr_env>-latest"
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Git ref to checkout — only used when pr_env is set"
+        required: false
+        type: string
+        default: "main"
 
 permissions:
   contents: read
@@ -31,6 +57,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -57,6 +85,8 @@ jobs:
 
       - name: Push k8s manifests as OCI artifact
         shell: bash
+        env:
+          PR_ENV: ${{ inputs.pr_env }}
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
           REPO="${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests"
@@ -68,17 +98,28 @@ jobs:
             --revision="${GITHUB_REF_NAME}@sha1:${GITHUB_SHA}" \
             --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
 
-          # main push → also :latest (default consumer ref).
-          # PR        → also :pr-<N> so terraform PR envs can pin.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            TAG="pr-${{ github.event.pull_request.number }}"
-          else
-            TAG="latest"
-          fi
-          flux tag artifact \
-            "oci://${REPO}:${SHORT_SHA}" \
-            --tag "${TAG}" \
-            --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
-
           echo "Pushed: mxl-dmf-demo-app-manifests:${SHORT_SHA}"
-          echo "Tagged: mxl-dmf-demo-app-manifests:${TAG}"
+
+          if [ -n "$PR_ENV" ]; then
+            # Called by terraform PR env — tag as <pr_env>-latest.
+            flux tag artifact \
+              "oci://${REPO}:${SHORT_SHA}" \
+              --tag "${PR_ENV}-latest" \
+              --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+            echo "Tagged: mxl-dmf-demo-app-manifests:${PR_ENV}-latest"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+            flux tag artifact \
+              "oci://${REPO}:${SHORT_SHA}" \
+              --tag "${TAG}" \
+              --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+            echo "Tagged: mxl-dmf-demo-app-manifests:${TAG}"
+          elif [ "$GITHUB_REF_NAME" = "main" ]; then
+            flux tag artifact \
+              "oci://${REPO}:${SHORT_SHA}" \
+              --tag "latest" \
+              --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+            echo "Tagged: mxl-dmf-demo-app-manifests:latest"
+          else
+            echo "Skipping tag — not on main and no pr_env set (branch: $GITHUB_REF_NAME)"
+          fi
