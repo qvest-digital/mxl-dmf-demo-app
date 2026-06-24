@@ -34,9 +34,17 @@ spec:
         app: txdarwin-output-viewer
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Land on a non-producer node (same placement rule as the composite),
-      # so the gateway bridges c3000000 across nodes like the other flows.
+      # Co-locate with composite so all consumers share one node, leaving the
+      # other node free for the writer (producer). The podAntiAffinity keeps
+      # this pod off the producer node as before; the podAffinity pulls it
+      # onto the composite node so the scheduler has a valid 2-node placement.
       affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: composite
+              topologyKey: kubernetes.io/hostname
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
