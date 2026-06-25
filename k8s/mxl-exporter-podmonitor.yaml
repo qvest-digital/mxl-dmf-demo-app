@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2025 Contributors to the Media eXchange Layer project.
+# SPDX-License-Identifier: Apache-2.0
+#
+# PodMonitor for mxl-exporter sidecars running in writer and reader pods.
+# Selects all pods with label mxl-metrics=true in the default namespace.
+# Prometheus Operator picks this up via the release: kube-prometheus-stack label.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: mxl-exporter
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      mxl-metrics: "true"
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+      relabelings:
+        # Node name as label — lets you pin Grafana panels per EFA node
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        # "writer" or "reader" — visible in Grafana for side-by-side comparison
+        - sourceLabels: [__meta_kubernetes_pod_label_app]
+          targetLabel: role
