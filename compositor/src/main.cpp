@@ -40,6 +40,15 @@ namespace
 {
     std::atomic<bool> g_exit{false};
 
+    // Per-flow source dimensions. The MXL flow config exposes grain rate and
+    // slice sizes but not width/height, so the tile resolution is taken from
+    // MXL_FRAME_WIDTH / MXL_FRAME_HEIGHT (set to match the producer's flow
+    // descriptor). Defaults to 1080p for backwards compatibility. Producing at
+    // tile resolution (tiles are 426x238) instead of 1080p cuts the per-grain
+    // payload ~20x — less producer load and less fabric traffic.
+    int g_frameW = 1920;
+    int g_frameH = 1080;
+
     void on_signal(int) { g_exit.store(true, std::memory_order_relaxed); }
 
     std::string env_or(char const* key, char const* fallback)
@@ -152,8 +161,8 @@ namespace
         // explicit set so videoconvert can negotiate without a stall.
         auto* caps = ::gst_caps_new_simple("video/x-raw",
             "format", G_TYPE_STRING, "v210",
-            "width", G_TYPE_INT, 1920,
-            "height", G_TYPE_INT, 1080,
+            "width", G_TYPE_INT, g_frameW,
+            "height", G_TYPE_INT, g_frameH,
             "framerate", GST_TYPE_FRACTION, rate.numerator, rate.denominator,
             nullptr);
         ::g_object_set(G_OBJECT(w->appsrc), "caps", caps, nullptr);
@@ -275,6 +284,10 @@ int main(int argc, char** argv)
     auto domain = env_or("MXL_DOMAIN", "/domain");
     auto outUrl = env_or("MXL_COMPOSITE_OUT", "rtsp://mediamtx:8554/composite");
     auto flowIdsStr = env_or("MXL_FLOW_IDS", "");
+    g_frameW = std::atoi(env_or("MXL_FRAME_WIDTH", "1920").c_str());
+    g_frameH = std::atoi(env_or("MXL_FRAME_HEIGHT", "1080").c_str());
+    if (g_frameW <= 0 || g_frameH <= 0) { g_frameW = 1920; g_frameH = 1080; }
+    g_print("Source tile resolution: %dx%d\n", g_frameW, g_frameH);
     auto flowIds = split_ws(flowIdsStr);
 
     if (flowIds.empty())
