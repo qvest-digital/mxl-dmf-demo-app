@@ -92,6 +92,34 @@ namespace
             requestedIndex += windowSize;
             deliveryDeadline = ::mxlIndexToTimestamp(&rate, currentIndex + windowSize);
         }
+
+        // Sync the cursor to the flow's ACTUAL ringbuffer head rather than to
+        // wall-clock time. realign(mxlGetTime()) only works when the writer's
+        // head tracks real time exactly; a writer that can't sustain its rate
+        // (e.g. 9x v210 1080p) or sits at a different index epoch leaves its
+        // head behind the wall-clock index, so the reader perpetually requests
+        // a future grain that never exists -> timeout -> realign-to-clock ->
+        // same future index -> wedged at 0 fps. Reading lagGrains behind the
+        // live head keeps every tile on a grain the writer has actually
+        // produced. Falls back to the wall-clock realign if the head is
+        // unavailable.
+        void realignToHead(::mxlFlowReader reader, std::int64_t lagGrains = 2)
+        {
+            ::mxlFlowRuntimeInfo rt{};
+            if (::mxlFlowReaderGetRuntimeInfo(reader, &rt) == MXL_STATUS_OK && rt.headIndex > 0)
+            {
+                std::int64_t head = static_cast<std::int64_t>(rt.headIndex);
+                std::int64_t aligned = (head / windowSize) * windowSize - lagGrains * windowSize;
+                if (aligned < 0) aligned = 0;
+                currentIndex = static_cast<std::uint64_t>(aligned);
+                requestedIndex = currentIndex;
+                deliveryDeadline = ::mxlIndexToTimestamp(&rate, currentIndex + windowSize);
+            }
+            else
+            {
+                realign(::mxlGetTime());
+            }
+        }
     };
 
     struct FlowWorker
@@ -112,6 +140,8 @@ namespace
     {
         auto rate = w->config.common.grainRate;
         Cursor cursor{rate, 1U, 0};
+        // Start from the flow's live head, not wall-clock — see realignToHead.
+        cursor.realignToHead(w->reader);
 
         g_print("[%zu] %s starting at rate %d/%d\n",
             w->index, w->flowId.c_str(),
@@ -163,7 +193,7 @@ namespace
                         if (::mxlCreateFlowReader(w->instance, w->flowId.c_str(), "", &w->reader) == MXL_STATUS_OK)
                         {
                             ::mxlFlowReaderGetConfigInfo(w->reader, &w->config);
-                            cursor.realign(::mxlGetTime());
+                            cursor.realignToHead(w->reader);
                             consecutiveMisses = 0;
                             g_print("[%zu] %s reader re-opened after FLOW_INVALID\n",
                                 w->index, w->flowId.c_str());
@@ -176,7 +206,7 @@ namespace
                     // desynced from a head that jumped (txDarwin switched its
                     // input flow, so the writer's index leapt). Realign to the
                     // live head instead of wedging at 0 fps.
-                    cursor.realign(::mxlGetTime());
+                    cursor.realignToHead(w->reader);
                     consecutiveMisses = 0;
                     g_print("[%zu] %s cursor realigned after sustained misses\n",
                         w->index, w->flowId.c_str());
