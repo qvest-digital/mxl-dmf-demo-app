@@ -46,10 +46,14 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  id-token: write # assume the AWS role for ECR push (OIDC)
 
 env:
-  REGISTRY: ghcr.io
+  # Manifests OCI lives in ECR alongside the platform + txdarwin artifacts,
+  # so the showcase reconciles it with the existing ecr-pull secret (no extra
+  # GHCR secret in flux-system). Container images stay on GHCR.
+  AWS_REGION: eu-central-1
+  REGISTRY: 720180693591.dkr.ecr.eu-central-1.amazonaws.com
 
 jobs:
   push-manifests:
@@ -60,12 +64,17 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        shell: bash
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
 
       - name: Install Flux CLI
         shell: bash
@@ -89,36 +98,26 @@ jobs:
           PR_ENV: ${{ inputs.pr_env }}
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
-          REPO="${{ env.REGISTRY }}/qvest-digital/mxl-dmf-demo-app-manifests"
+          REPO="${{ env.REGISTRY }}/mxl-dmf-demo-app-manifests"
 
+          # flux authenticates from the docker config the ECR login wrote.
           flux push artifact \
             "oci://${REPO}:${SHORT_SHA}" \
             --path="/tmp/k8s-rendered" \
             --source="$(git config --get remote.origin.url)" \
-            --revision="${GITHUB_REF_NAME}@sha1:${GITHUB_SHA}" \
-            --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+            --revision="${GITHUB_REF_NAME}@sha1:${GITHUB_SHA}"
 
           echo "Pushed: mxl-dmf-demo-app-manifests:${SHORT_SHA}"
 
           if [ -n "$PR_ENV" ]; then
             # Called by terraform PR env — tag as <pr_env>-latest.
-            flux tag artifact \
-              "oci://${REPO}:${SHORT_SHA}" \
-              --tag "${PR_ENV}-latest" \
-              --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+            flux tag artifact "oci://${REPO}:${SHORT_SHA}" --tag "${PR_ENV}-latest"
             echo "Tagged: mxl-dmf-demo-app-manifests:${PR_ENV}-latest"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            TAG="pr-${{ github.event.pull_request.number }}"
-            flux tag artifact \
-              "oci://${REPO}:${SHORT_SHA}" \
-              --tag "${TAG}" \
-              --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
-            echo "Tagged: mxl-dmf-demo-app-manifests:${TAG}"
+            flux tag artifact "oci://${REPO}:${SHORT_SHA}" --tag "pr-${{ github.event.pull_request.number }}"
+            echo "Tagged: mxl-dmf-demo-app-manifests:pr-${{ github.event.pull_request.number }}"
           elif [ "$GITHUB_REF_NAME" = "main" ]; then
-            flux tag artifact \
-              "oci://${REPO}:${SHORT_SHA}" \
-              --tag "latest" \
-              --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+            flux tag artifact "oci://${REPO}:${SHORT_SHA}" --tag "latest"
             echo "Tagged: mxl-dmf-demo-app-manifests:latest"
           else
             echo "Skipping tag — not on main and no pr_env set (branch: $GITHUB_REF_NAME)"
