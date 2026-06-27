@@ -360,26 +360,21 @@ int main(int argc, char** argv)
             return 3;
         }
 
-        // Retry the reader open instead of failing fast. The anti-affinity
-        // keeps the compositor off the producer's node (to exercise cross-node
-        // MXL), so each flow arrives via an MxlFlowMirror that the agent only
-        // forms while a consumer pod is Running. A pod that exits on the first
-        // failed open therefore deadlocks — it dies before the mirror it is
-        // waiting for can form, so the mirror never appears and it never opens.
-        // Staying up through the open lets the mirror form (and rides out a
-        // producer restart). ~5 min ceiling, then give up for real.
-        constexpr int kOpenAttempts = 150;
+        // Retry the reader open indefinitely instead of failing fast. The
+        // anti-affinity keeps the compositor off the producer's node (to
+        // exercise cross-node MXL), so each flow arrives via an MxlFlowMirror
+        // that the operator only creates — and its intent-GC only keeps — while
+        // a consumer pod is stably Running. Exiting on a failed open is fatal:
+        // the pod restarts, the GC tears the half-formed mirror down, and it
+        // never lives long enough to get a mirror -> CrashLoopBackOff, no mirror
+        // ever. So never exit for a missing flow — stay Running (container ready,
+        // a stable consumer) so the mirror forms and the flow arrives. Killable
+        // via SIGTERM (g_exit).
         for (int attempt = 1;; ++attempt)
         {
             auto ret = ::mxlCreateFlowReader(w.instance, w.flowId.c_str(), "", &w.reader);
             if (ret == MXL_STATUS_OK) break;
             if (g_exit.load(std::memory_order_relaxed)) return 0;
-            if (attempt >= kOpenAttempts)
-            {
-                g_printerr("mxlCreateFlowReader %s still failing after %d attempts: %d\n",
-                    w.flowId.c_str(), attempt, static_cast<int>(ret));
-                return 4;
-            }
             if (attempt == 1 || attempt % 15 == 0)
                 g_print("[%zu] %s waiting for flow (attempt %d, mxlCreateFlowReader=%d)\n",
                     i, w.flowId.c_str(), attempt, static_cast<int>(ret));
