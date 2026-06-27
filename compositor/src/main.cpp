@@ -66,70 +66,10 @@ namespace
         return out;
     }
 
-    // Re-implementation of the Cursor pattern from mxl-gst-sink. Keeps each
-    // reader pinned to the live grain index for its flow's rate; next()
-    // sleeps until the next grain's delivery deadline so workers don't busy-
-    // poll. readDelay=0 because the compositor wants the freshest frame.
-    struct Cursor
-    {
-        mxlRational rate;
-        std::uint32_t windowSize;
-        std::int64_t readDelayGrains;
-        std::uint64_t currentIndex;
-        std::uint64_t requestedIndex;
-        std::uint64_t deliveryDeadline;
-
-        Cursor(mxlRational r, std::uint32_t w, std::int64_t readDelayNs)
-            : rate{r}
-            , windowSize{w}
-            , readDelayGrains{((::mxlTimestampToIndex(&r, readDelayNs) + w - 1) / w) * w}
-        {
-            realign(::mxlGetTime());
-        }
-
-        void realign(std::uint64_t now)
-        {
-            currentIndex = ((::mxlTimestampToIndex(&rate, now) + (windowSize / 2)) / windowSize) * windowSize;
-            requestedIndex = currentIndex - readDelayGrains;
-            deliveryDeadline = ::mxlIndexToTimestamp(&rate, currentIndex + windowSize);
-        }
-
-        void next()
-        {
-            ::mxlSleepUntil(deliveryDeadline);
-            currentIndex += windowSize;
-            requestedIndex += windowSize;
-            deliveryDeadline = ::mxlIndexToTimestamp(&rate, currentIndex + windowSize);
-        }
-
-        // Sync the cursor to the flow's ACTUAL ringbuffer head rather than to
-        // wall-clock time. realign(mxlGetTime()) only works when the writer's
-        // head tracks real time exactly; a writer that can't sustain its rate
-        // (e.g. 9x v210 1080p) or sits at a different index epoch leaves its
-        // head behind the wall-clock index, so the reader perpetually requests
-        // a future grain that never exists -> timeout -> realign-to-clock ->
-        // same future index -> wedged at 0 fps. Reading lagGrains behind the
-        // live head keeps every tile on a grain the writer has actually
-        // produced. Falls back to the wall-clock realign if the head is
-        // unavailable.
-        void realignToHead(::mxlFlowReader reader, std::int64_t lagGrains = 2)
-        {
-            ::mxlFlowRuntimeInfo rt{};
-            if (::mxlFlowReaderGetRuntimeInfo(reader, &rt) == MXL_STATUS_OK && rt.headIndex > 0)
-            {
-                std::int64_t head = static_cast<std::int64_t>(rt.headIndex);
-                std::int64_t aligned = (head / windowSize) * windowSize - lagGrains * windowSize;
-                if (aligned < 0) aligned = 0;
-                currentIndex = static_cast<std::uint64_t>(aligned);
-                requestedIndex = currentIndex;
-                deliveryDeadline = ::mxlIndexToTimestamp(&rate, currentIndex + windowSize);
-            }
-            else
-            {
-                realign(::mxlGetTime());
-            }
-        }
-    };
+    // How many grains behind the live head to read. The newest grain may be
+    // mid-write; lagging a couple keeps every tile on a grain the writer has
+    // actually finished producing.
+    constexpr std::int64_t kLagGrains = 2;
 
     struct FlowWorker
     {
@@ -147,14 +87,29 @@ namespace
 
     void worker_loop(FlowWorker* w)
     {
+        using clock = std::chrono::steady_clock;
         auto rate = w->config.common.grainRate;
-        Cursor cursor{rate, 1U, 0};
-        // Start from the flow's live head, not wall-clock — see realignToHead.
-        cursor.realignToHead(w->reader);
 
-        g_print("[%zu] %s starting at rate %d/%d\n",
+        // Drive the read loop off a monotonic clock at the flow's grain rate.
+        // The producers (mxl-gst-testsrc) free-run at ~5x realtime, so each
+        // flow head runs ahead of nominal cadence. Walking the ring in sequence
+        // forced the compositor to copy, decode, and scale every grain the
+        // writers produced (~5x the 30 fps they actually emit). That pinned it
+        // at 6-7 of 9 tiles and starved the rest to 0 fps; the realign churn on
+        // the starved tiles also flickered the mosaic. Now we sample the newest
+        // finished grain (head - kLagGrains) once per grain period and skip the
+        // rest, so read/decode load stays at 9 x 30 fps regardless of writer
+        // speed. Re-reading the head each tick also leaves no cursor to wedge
+        // when a flow's index jumps or it restarts.
+        auto const period = std::chrono::nanoseconds{
+            rate.numerator > 0
+                ? static_cast<std::int64_t>(1'000'000'000LL) * rate.denominator / rate.numerator
+                : 33'366'700LL};
+
+        g_print("[%zu] %s starting at rate %d/%d (paced %lld ns/grain)\n",
             w->index, w->flowId.c_str(),
-            rate.numerator, rate.denominator);
+            rate.numerator, rate.denominator,
+            static_cast<long long>(period.count()));
 
         // Push the appsrc caps once before the first buffer. The capsfilter
         // downstream in the pipeline asserts the format, but appsrc needs an
@@ -168,32 +123,41 @@ namespace
         ::g_object_set(G_OBJECT(w->appsrc), "caps", caps, nullptr);
         ::gst_caps_unref(caps);
 
-        // Consecutive failed reads. A burst means either the flow was torn
-        // down (FLOW_INVALID) or our cursor desynced from a live flow whose
-        // grain index jumped — txDarwin switching its input flow makes the
-        // writer's c3000000 head leap. Both wedge the worker at 0 fps under
-        // the original realign-only-on-FLOW_INVALID logic; track misses so we
-        // recover either way without needing a pod restart.
-        std::uint32_t consecutiveMisses = 0;
+        auto nextTick = clock::now();
+        auto pace = [&]() {
+            nextTick += period;
+            auto now = clock::now();
+            if (nextTick < now) nextTick = now + period;  // fell behind: don't burst
+            else std::this_thread::sleep_until(nextTick);
+        };
 
         while (!g_exit.load(std::memory_order_relaxed))
         {
+            // Resolve the freshest finished grain from the live head each tick,
+            // rather than advancing a cursor — decouples our cadence from the
+            // writer's (over)production rate and self-heals index jumps.
+            ::mxlFlowRuntimeInfo rt{};
+            bool haveIndex = ::mxlFlowReaderGetRuntimeInfo(w->reader, &rt) == MXL_STATUS_OK &&
+                static_cast<std::int64_t>(rt.headIndex) > kLagGrains;
+            std::uint64_t requestedIndex =
+                haveIndex ? rt.headIndex - static_cast<std::uint64_t>(kLagGrains) : 0;
+
             ::mxlGrainInfo info{};
             std::uint8_t* payload = nullptr;
+            // The requested grain is already finished, so this returns at once;
+            // the 100 ms cap only covers a flow that is briefly between writes.
+            auto ret = haveIndex
+                ? ::mxlFlowReaderGetGrain(w->reader, requestedIndex, 100'000'000ULL, &info, &payload)
+                : MXL_ERR_FLOW_INVALID;
 
-            // 100 ms grain wait covers any one-off jitter; longer waits trip
-            // the supervisor / pipeline live latency.
-            auto ret = ::mxlFlowReaderGetGrain(w->reader, cursor.requestedIndex, 100'000'000ULL, &info, &payload);
             if (ret != MXL_STATUS_OK)
             {
                 w->framesMissed.fetch_add(1, std::memory_order_relaxed);
-                ++consecutiveMisses;
-                if (ret == MXL_ERR_FLOW_INVALID)
+                if (ret == MXL_ERR_FLOW_INVALID && haveIndex)
                 {
                     // Flow was torn down / recreated (writer or full txDarwin
                     // restart) and the old reader handle is dead. Once the flow
-                    // is back, release the stale reader and open a fresh one,
-                    // then realign to the new head.
+                    // is back, release the stale reader and open a fresh one.
                     bool active = false;
                     if (::mxlIsFlowActive(w->instance, w->flowId.c_str(), &active) == MXL_STATUS_OK && active)
                     {
@@ -202,33 +166,18 @@ namespace
                         if (::mxlCreateFlowReader(w->instance, w->flowId.c_str(), "", &w->reader) == MXL_STATUS_OK)
                         {
                             ::mxlFlowReaderGetConfigInfo(w->reader, &w->config);
-                            cursor.realignToHead(w->reader);
-                            consecutiveMisses = 0;
                             g_print("[%zu] %s reader re-opened after FLOW_INVALID\n",
                                 w->index, w->flowId.c_str());
                         }
                     }
                 }
-                else if (consecutiveMisses >= 10)
-                {
-                    // Flow is alive but grains stopped arriving — our cursor
-                    // desynced from a head that jumped (txDarwin switched its
-                    // input flow, so the writer's index leapt). Realign to the
-                    // live head instead of wedging at 0 fps.
-                    cursor.realignToHead(w->reader);
-                    consecutiveMisses = 0;
-                    g_print("[%zu] %s cursor realigned after sustained misses\n",
-                        w->index, w->flowId.c_str());
-                }
-                // Tiny backoff so a dead flow doesn't burn CPU.
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                pace();  // hold cadence even while a flow is down
                 continue;
             }
-            consecutiveMisses = 0;
 
             if (info.validSlices < info.totalSlices || (info.flags & MXL_GRAIN_FLAG_INVALID) != 0)
             {
-                cursor.next();
+                pace();
                 continue;
             }
 
@@ -264,7 +213,7 @@ namespace
             }
 
             w->framesPushed.fetch_add(1, std::memory_order_relaxed);
-            cursor.next();
+            pace();
         }
 
         g_print("[%zu] %s worker exiting (pushed=%llu missed=%llu)\n",
