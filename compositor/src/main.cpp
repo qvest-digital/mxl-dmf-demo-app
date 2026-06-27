@@ -343,8 +343,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Open every MXL flow before going live so any missing flow fails fast
-    // (better than letting the pipeline run with one tile black forever).
+    // Open every MXL flow before going live, retrying per flow until it
+    // appears (see the loop below) so a not-yet-mirrored flow doesn't wedge.
     std::vector<FlowWorker> workers(flowIds.size());
     for (std::size_t i = 0; i < flowIds.size(); ++i)
     {
@@ -360,11 +360,30 @@ int main(int argc, char** argv)
             return 3;
         }
 
-        if (auto ret = ::mxlCreateFlowReader(w.instance, w.flowId.c_str(), "", &w.reader);
-            ret != MXL_STATUS_OK)
+        // Retry the reader open instead of failing fast. The anti-affinity
+        // keeps the compositor off the producer's node (to exercise cross-node
+        // MXL), so each flow arrives via an MxlFlowMirror that the agent only
+        // forms while a consumer pod is Running. A pod that exits on the first
+        // failed open therefore deadlocks — it dies before the mirror it is
+        // waiting for can form, so the mirror never appears and it never opens.
+        // Staying up through the open lets the mirror form (and rides out a
+        // producer restart). ~5 min ceiling, then give up for real.
+        constexpr int kOpenAttempts = 150;
+        for (int attempt = 1;; ++attempt)
         {
-            g_printerr("mxlCreateFlowReader %s failed: %d\n", w.flowId.c_str(), static_cast<int>(ret));
-            return 4;
+            auto ret = ::mxlCreateFlowReader(w.instance, w.flowId.c_str(), "", &w.reader);
+            if (ret == MXL_STATUS_OK) break;
+            if (g_exit.load(std::memory_order_relaxed)) return 0;
+            if (attempt >= kOpenAttempts)
+            {
+                g_printerr("mxlCreateFlowReader %s still failing after %d attempts: %d\n",
+                    w.flowId.c_str(), attempt, static_cast<int>(ret));
+                return 4;
+            }
+            if (attempt == 1 || attempt % 15 == 0)
+                g_print("[%zu] %s waiting for flow (attempt %d, mxlCreateFlowReader=%d)\n",
+                    i, w.flowId.c_str(), attempt, static_cast<int>(ret));
+            std::this_thread::sleep_for(std::chrono::seconds(2));
         }
 
         if (auto ret = ::mxlFlowReaderGetConfigInfo(w.reader, &w.config);
