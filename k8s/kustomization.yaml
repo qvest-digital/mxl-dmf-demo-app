@@ -8,6 +8,7 @@ resources:
   - writer-deployment.yaml
   - composite-deployment.yaml
   - composite-service.yaml
+  - metrics-aggregator.yaml
   - txdarwin-output-viewer.yaml
   - mxl-receivers.yaml
 
@@ -31,3 +32,7 @@ configMapGenerator:
     files:
       - Caddyfile=config/Caddyfile
       - index.html=config/index.html
+  # Python source for the demo-metrics aggregator (mounted at /app).
+  - name: demo-metrics-script
+    files:
+      - aggregator.py=metrics/aggregator.py

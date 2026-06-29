@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Qvest · MXL RDMA Multiviewer</title>
+<title>QVEST · MXL RDMA Multiviewer</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,22 +26,17 @@
     font-family: var(--qv-font);
     background: var(--qv-white);
     color: var(--qv-ink);
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
+    display: flex; flex-direction: column; min-height: 100vh;
   }
 
-  /* ── Top nav ─────────────────────────────────────────── */
   header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 28px;
-    border-bottom: 1px solid #eee;
-    flex-wrap: wrap; gap: 10px;
+    padding: 14px 28px; border-bottom: 1px solid #eee; flex-wrap: wrap; gap: 10px;
   }
   .brand { display: flex; align-items: baseline; gap: 12px; }
   .brand .logo {
-    font-weight: 800; font-size: 26px; letter-spacing: -0.03em;
-    color: var(--qv-orange);
+    font-weight: 800; font-size: 26px; letter-spacing: 0.02em;
+    color: var(--qv-orange); text-transform: uppercase;
   }
   .brand .sub {
     font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
@@ -49,81 +44,84 @@
   }
   .status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .pill {
-    border-radius: var(--qv-radius-pill);
-    border: 2px solid var(--qv-orange);
-    color: var(--qv-orange);
-    background: transparent;
-    padding: .42em 1.1em;
-    font-weight: 600; font-size: 13px;
-    display: inline-flex; align-items: center; gap: 7px;
-    white-space: nowrap;
+    border-radius: var(--qv-radius-pill); border: 2px solid var(--qv-orange);
+    color: var(--qv-orange); background: transparent; padding: .42em 1.1em;
+    font-weight: 600; font-size: 13px; display: inline-flex; align-items: center;
+    gap: 7px; white-space: nowrap;
   }
-  .pill.solid { background: var(--qv-orange); color: #fff; border-color: var(--qv-orange); }
   .pill b { font-weight: 800; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #bbb; display: inline-block; }
   .dot.live { background: var(--qv-lime); box-shadow: 0 0 0 3px rgba(200,241,105,.35); }
-  .dot.bad  { background: var(--qv-orange); }
+  .dot.bad  { background: var(--qv-orange); box-shadow: 0 0 0 3px rgba(240,80,18,.3); }
 
-  /* ── Main two-column ─────────────────────────────────── */
   main {
     flex: 1; display: grid;
-    grid-template-columns: minmax(0, 1.9fr) minmax(300px, .8fr);
+    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
     gap: 22px; padding: 24px 28px;
   }
-  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
 
   .stage-wrap { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .stage {
     position: relative; background: var(--qv-ink);
-    border-radius: var(--qv-radius); overflow: hidden;
-    aspect-ratio: 16 / 9; width: 100%;
+    border-radius: var(--qv-radius); overflow: hidden; aspect-ratio: 16 / 9; width: 100%;
   }
   .stage video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
-  .stage .tag {
-    position: absolute; top: 14px; left: 14px;
-    background: var(--qv-lime); color: var(--qv-ink);
-    font-weight: 700; font-size: 12px; letter-spacing: .03em;
-    padding: 5px 12px; border-radius: var(--qv-radius-pill);
-  }
   .headline {
     font-weight: 800; line-height: 1.05; letter-spacing: -0.02em;
     font-size: clamp(22px, 3vw, 34px);
   }
   .headline .accent { color: var(--qv-orange); }
-  .eyebrow { font-size: 13px; font-weight: 600; opacity: .6; letter-spacing: .05em; text-transform: uppercase; }
 
-  /* ── Metrics panel (teal dark block) ─────────────────── */
   .panel {
-    background: var(--qv-teal); color: #fff;
-    border-radius: var(--qv-radius);
+    background: var(--qv-teal); color: #fff; border-radius: var(--qv-radius);
     padding: 22px 20px; display: flex; flex-direction: column; gap: 16px;
-    /* signature diagonal cut on the bottom-left corner */
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 6%);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 5%);
   }
   .panel h2 { font-size: 15px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; opacity: .8; }
   .agg { display: flex; gap: 10px; flex-wrap: wrap; }
-  .agg .stat {
-    background: rgba(255,255,255,.07); border-radius: 14px;
-    padding: 10px 14px; flex: 1; min-width: 110px;
-  }
+  .agg .stat { background: rgba(255,255,255,.07); border-radius: 14px; padding: 10px 14px; flex: 1; min-width: 100px; }
   .agg .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .65; }
   .agg .stat .v { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
   .agg .stat .v small { font-size: 12px; font-weight: 600; opacity: .7; }
   .agg .stat .v.lime { color: var(--qv-lime); }
 
   .flows { display: flex; flex-direction: column; gap: 10px; }
-  .flow {
-    background: rgba(255,255,255,.06); border-radius: 14px;
-    padding: 12px 14px; display: grid;
-    grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
-  }
+  .flow { background: rgba(255,255,255,.06); border-radius: 14px; padding: 12px 14px; }
+  .flow .row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; }
   .flow .name { font-weight: 800; font-size: 15px; }
-  .flow .metrics { display: flex; gap: 16px; justify-content: flex-end; }
-  .flow .metrics .m { text-align: right; }
-  .flow .metrics .m .k { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; }
-  .flow .metrics .m .v { font-size: 16px; font-weight: 700; }
-  .flow .metrics .m .v.lime { color: var(--qv-lime); }
-  .flow .metrics .m .v.warn { color: var(--qv-orange); }
+  .flow .name .pat { font-weight: 500; font-size: 11px; opacity: .6; margin-left: 6px; text-transform: uppercase; }
+  .flow .quick { display: flex; gap: 14px; justify-content: flex-end; }
+  .flow .quick .m { text-align: right; }
+  .flow .quick .m .k { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; }
+  .flow .quick .m .v { font-size: 15px; font-weight: 700; }
+  .flow .quick .m .v.lime { color: var(--qv-lime); }
+  .flow .quick .m .v.warn { color: var(--qv-orange); }
+  .btn {
+    border-radius: var(--qv-radius-pill); border: 2px solid rgba(255,255,255,.5);
+    color: #fff; background: transparent; padding: .3em .9em; font-weight: 700;
+    font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { border-color: #fff; }
+  .btn.kill { border-color: var(--qv-orange); color: var(--qv-orange); }
+  .btn.kill:hover { background: var(--qv-orange); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  .detail { display: none; margin-top: 12px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; }
+  .detail.open { display: block; }
+  .detail h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; opacity: .6; margin: 10px 0 5px; }
+  .detail h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: 132px 1fr; gap: 2px 10px; font-size: 12.5px; }
+  .kv .k { opacity: .6; }
+  .kv .v { font-weight: 600; word-break: break-word; }
+  .kv .v.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+  .kv .v.ok { color: var(--qv-lime); }
+  .kv .v.bad { color: var(--qv-orange); }
+
+  .gwbar { display: flex; flex-direction: column; gap: 8px; }
+  .gwgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .gw { background: rgba(255,255,255,.06); border-radius: 12px; padding: 8px 12px; font-size: 12px; }
+  .gw .node { font-weight: 800; font-size: 14px; }
 
   footer { padding: 12px 28px; border-top: 1px solid #eee; font-size: 12px; opacity: .55; }
 </style>
@@ -135,161 +133,183 @@
       <span class="sub">MXL · RDMA Multiviewer</span>
     </div>
     <div class="status">
-      <span class="pill"><span class="dot" id="link-dot"></span> RDMA <b id="provider">verbs</b></span>
       <span class="pill">HLS lag <b id="hls-lag">--</b> ms</span>
-      <span class="pill solid" id="state-pill"><span class="dot" id="state-dot"></span> <b id="state">connecting</b></span>
       <span class="pill"><b id="clk">--:--:--</b></span>
     </div>
   </header>
 
   <main>
     <div class="stage-wrap">
-      <div>
-        <div class="eyebrow">Live composite — one shareable stream</div>
-        <div class="headline">Four producers, <span class="accent">one RDMA mosaic</span>.</div>
-      </div>
-      <div class="stage">
-        <span class="tag" id="grid-tag">2×2</span>
-        <video id="v" muted autoplay playsinline></video>
-      </div>
+      <div class="stage"><video id="v" muted autoplay playsinline></video></div>
     </div>
 
     <aside class="panel">
       <h2>RDMA delivery</h2>
       <div class="agg">
-        <div class="stat">
-          <div class="k">Throughput</div>
-          <div class="v lime"><span id="agg-mbps">--</span> <small>Mbit/s</small></div>
-        </div>
-        <div class="stat">
-          <div class="k">Grains / s</div>
-          <div class="v"><span id="agg-fps">--</span></div>
-        </div>
-        <div class="stat">
-          <div class="k">Tiles live</div>
-          <div class="v"><span id="agg-live">-</span><small>/<span id="agg-total">-</span></small></div>
-        </div>
+        <div class="stat"><div class="k">Throughput</div><div class="v lime"><span id="agg-mbps">--</span> <small>Mbit/s</small></div></div>
+        <div class="stat"><div class="k">Grains / s</div><div class="v"><span id="agg-fps">--</span></div></div>
+        <div class="stat"><div class="k">Tiles live</div><div class="v"><span id="agg-live">-</span><small>/<span id="agg-total">-</span></small></div></div>
       </div>
       <div class="flows" id="flows"></div>
+
+      <div class="gwbar">
+        <h2>Gateways</h2>
+        <div class="gwgrid" id="gwgrid"></div>
+      </div>
     </aside>
   </main>
 
   <footer>
-    Each tile is a dedicated writer pod producing one v210 flow; the mxl-k8s gateway mirrors every flow
-    cross-node over RDMA&nbsp;(verbs) into the compositor. Metrics are measured at the RDMA receive side.
+    Each tile is a dedicated writer pod producing one v210 flow; the mxl-k8s gateway mirrors it cross-node over
+    RDMA (verbs) into the compositor. Metrics are measured at the RDMA receive side. Kill a flow to watch the
+    compositor's reader watchdog recover it.
   </footer>
 
   <script>
-    var clk = document.getElementById('clk');
     function pad(n){ return n<10 ? '0'+n : ''+n; }
-    function tick(){
-      var d = new Date();
-      clk.textContent = pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
-    }
-    setInterval(tick, 250); tick();
+    var clk = document.getElementById('clk');
+    setInterval(function(){ var d=new Date(); clk.textContent = pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); }, 250);
 
-    // ── Per-flow RDMA metrics panel ────────────────────────────────
-    var flowsEl = document.getElementById('flows');
-    var cards = {};
-    function fmt(n, d){ return (n==null||isNaN(n)) ? '--' : n.toFixed(d==null?0:d); }
+    function fmt(n,d){ return (n==null||isNaN(n)) ? '--' : Number(n).toFixed(d==null?0:d); }
+    function ago(iso){ if(!iso) return '--'; var s=Math.max(0,(Date.now()-Date.parse(iso))/1000); if(s<90) return s.toFixed(0)+'s'; if(s<5400) return (s/60).toFixed(0)+'m'; return (s/3600).toFixed(1)+'h'; }
+    function esc(s){ return (s==null?'':String(s)).replace(/[<&]/g, function(c){return c=='<'?'&lt;':'&amp;';}); }
+    function shortImg(s){ if(!s) return '--'; return s.replace(/^.*\//,'').slice(0,40); }
 
-    function ensureCard(i){
-      if (cards[i]) return cards[i];
-      var el = document.createElement('div');
-      el.className = 'flow';
+    var cards = {};       // n -> elements
+    var openDetail = {};  // n -> bool
+
+    function ensureCard(n){
+      if (cards[n]) return cards[n];
+      var el = document.createElement('div'); el.className='flow';
       el.innerHTML =
-        '<span class="dot" data-r="dot"></span>' +
-        '<span class="name" data-r="name">MXL-'+(i+1)+'</span>' +
-        '<span class="metrics">' +
-          '<span class="m"><div class="k">grains/s</div><div class="v" data-r="fps">--</div></span>' +
-          '<span class="m"><div class="k">Mbit/s</div><div class="v lime" data-r="mbps">--</div></span>' +
-          '<span class="m"><div class="k">dropped</div><div class="v" data-r="missed">--</div></span>' +
-        '</span>';
-      flowsEl.appendChild(el);
-      cards[i] = {
-        root: el,
-        dot: el.querySelector('[data-r=dot]'),
-        name: el.querySelector('[data-r=name]'),
-        fps: el.querySelector('[data-r=fps]'),
-        mbps: el.querySelector('[data-r=mbps]'),
-        missed: el.querySelector('[data-r=missed]')
+        '<div class="row">' +
+          '<span class="dot" data-r="dot"></span>' +
+          '<span class="name"><span data-r="name">MXL-'+n+'</span><span class="pat" data-r="pat"></span></span>' +
+          '<span class="quick">' +
+            '<span class="m"><div class="k">grains/s</div><div class="v" data-r="fps">--</div></span>' +
+            '<span class="m"><div class="k">Mbit/s</div><div class="v lime" data-r="mbps">--</div></span>' +
+          '</span>' +
+          '<span style="display:flex;gap:6px">' +
+            '<button class="btn" data-r="details">Details ▾</button>' +
+            '<button class="btn kill" data-r="kill">Kill</button>' +
+          '</span>' +
+        '</div>' +
+        '<div class="detail" data-r="detail"></div>';
+      document.getElementById('flows').appendChild(el);
+      var c = { root:el,
+        dot:el.querySelector('[data-r=dot]'), name:el.querySelector('[data-r=name]'), pat:el.querySelector('[data-r=pat]'),
+        fps:el.querySelector('[data-r=fps]'), mbps:el.querySelector('[data-r=mbps]'),
+        details:el.querySelector('[data-r=details]'), kill:el.querySelector('[data-r=kill]'),
+        detail:el.querySelector('[data-r=detail]') };
+      c.details.onclick = function(){ openDetail[n]=!openDetail[n]; c.detail.classList.toggle('open', openDetail[n]); c.details.textContent = 'Details '+(openDetail[n]?'▴':'▾'); };
+      c.kill.onclick = function(){
+        c.kill.disabled=true; c.kill.textContent='Killing…';
+        fetch('/api/kill/'+n, {method:'POST'}).then(function(r){return r.json();})
+          .then(function(){ c.kill.textContent='Killed'; setTimeout(function(){ c.kill.disabled=false; c.kill.textContent='Kill'; }, 4000); })
+          .catch(function(){ c.kill.textContent='Kill failed'; setTimeout(function(){ c.kill.disabled=false; c.kill.textContent='Kill'; }, 4000); });
       };
-      return cards[i];
+      cards[n]=c; return c;
     }
 
-    function renderStats(s){
-      document.getElementById('provider').textContent = s.provider || 'verbs';
-      document.getElementById('grid-tag').textContent = (s.cols||2)+'×'+(s.rows||2);
-      var totMbps = 0, totFps = 0, live = 0;
-      (s.flows||[]).forEach(function(f){
-        var c = ensureCard(f.i);
-        c.name.textContent = f.label || ('MXL-'+(f.i+1));
-        c.fps.textContent = fmt(f.fps, 1);
-        c.mbps.textContent = fmt(f.mbps, 0);
-        c.missed.textContent = f.missed;
-        c.missed.className = 'v' + (f.missed > 0 ? ' warn' : '');
-        c.dot.className = 'dot' + (f.live ? ' live' : ' bad');
-        totMbps += f.mbps || 0; totFps += f.fps || 0; if (f.live) live++;
+    function kvRow(k,v,cls){ return '<div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v+'</div>'; }
+
+    function renderDetail(f){
+      var w=f.writer||{}, comp=f.compositor||{}, rc=f.receiver||{}, fl=f.flow||{};
+      var mir=(f.mirrors||[]).map(function(m){return m.sourceNode+'→'+m.name.split('--').pop()+' '+m.phase+' ('+m.provider+')';}).join('<br>')||'--';
+      var locs=(fl.locations||[]).map(function(l){return l.node+':'+l.phase;}).join(', ')||'--';
+      var ofresh = fl.originFresh==='True';
+      return ''+
+        '<h3>Writer pod</h3><div class="kv">'+
+          kvRow('node', esc(w.node)||'--', w.node? 'ok':'')+
+          kvRow('phase', esc(w.phase)||'--', w.phase==='Running'?'ok':'bad')+
+          kvRow('ready', w.ready?'yes':'no', w.ready?'ok':'bad')+
+          kvRow('restarts', w.restarts==null?'--':w.restarts, w.restarts?'bad':'')+
+          kvRow('pattern', esc(w.pattern)||'--')+
+          kvRow('uptime', ago(w.started))+
+          kvRow('pod', '<span class="mono">'+esc(w.pod)+'</span>')+
+          kvRow('image', '<span class="mono">'+esc(shortImg(w.image))+'</span>')+
+        '</div>'+
+        '<h3>Compositor (RDMA receive)</h3><div class="kv">'+
+          kvRow('grains/s', fmt(comp.fps,1), comp.live?'ok':'bad')+
+          kvRow('throughput', fmt(comp.mbps,0)+' Mbit/s')+
+          kvRow('grains pushed', comp.pushed==null?'--':comp.pushed)+
+          kvRow('grains dropped', comp.missed==null?'--':comp.missed, comp.missed?'bad':'')+
+          kvRow('live', comp.live?'yes':'no', comp.live?'ok':'bad')+
+        '</div>'+
+        '<h3>Receiver / mirror (gateway)</h3><div class="kv">'+
+          kvRow('provider', esc(rc.provider)||'--')+
+          kvRow('receiver', esc(rc.phase)||'--', rc.phase==='Bound'?'ok':'bad')+
+          kvRow('mirror', '<span class="mono">'+mir+'</span>')+
+        '</div>'+
+        '<h3>Flow origin</h3><div class="kv">'+
+          kvRow('origin fresh', ofresh?'yes':'no', ofresh?'ok':'bad')+
+          kvRow('reason', esc(fl.originReason)||'--')+
+          kvRow('locations', '<span class="mono">'+esc(locs)+'</span>')+
+          kvRow('uuid', '<span class="mono">'+esc(f.uuid)+'</span>')+
+        '</div>';
+    }
+
+    function renderGateways(gws){
+      var g=document.getElementById('gwgrid');
+      g.innerHTML=(gws||[]).map(function(x){
+        return '<div class="gw"><div class="node">'+esc(x.node)+'</div>'+
+          'ready '+(x.ready?'✓':'✗')+' · restarts '+x.restarts+'<br>'+
+          '<span style="opacity:.6">'+esc(x.name)+'</span></div>';
+      }).join('') || '<div class="gw">no gateway pods</div>';
+    }
+
+    function apply(data){
+      var totMbps=0, totFps=0, live=0, flows=data.flows||[];
+      flows.forEach(function(f){
+        var c=ensureCard(f.n), comp=f.compositor||{};
+        c.name.textContent = f.label;
+        c.pat.textContent = (f.writer&&f.writer.pattern)?f.writer.pattern:'';
+        c.fps.textContent = fmt(comp.fps,1);
+        c.mbps.textContent = fmt(comp.mbps,0);
+        c.dot.className = 'dot ' + (comp.live ? 'live' : 'bad');
+        if (openDetail[f.n]) c.detail.innerHTML = renderDetail(f);
+        totMbps += comp.mbps||0; totFps += comp.fps||0; if (comp.live) live++;
       });
-      document.getElementById('agg-mbps').textContent = fmt(totMbps, 0);
-      document.getElementById('agg-fps').textContent = fmt(totFps, 0);
+      document.getElementById('agg-mbps').textContent = fmt(totMbps,0);
+      document.getElementById('agg-fps').textContent = fmt(totFps,0);
       document.getElementById('agg-live').textContent = live;
-      document.getElementById('agg-total').textContent = (s.flows||[]).length;
-      var ld = document.getElementById('link-dot');
-      ld.className = 'dot' + (live > 0 ? ' live' : ' bad');
+      document.getElementById('agg-total').textContent = flows.length;
+      renderGateways(data.gateways);
     }
 
-    function pollStats(){
-      fetch('/stats.json', { cache: 'no-store' })
-        .then(function(r){ return r.json(); })
-        .then(renderStats)
-        .catch(function(){ /* transient; keep last render */ });
+    function poll(){
+      fetch('/api/flows', {cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
     }
-    setInterval(pollStats, 1000); pollStats();
+    setInterval(poll, 1500); poll();
 
-    // ── HLS player (composite mosaic) ──────────────────────────────
-    var lagEl = document.getElementById('hls-lag');
-    var stEl = document.getElementById('state');
-    var stPill = document.getElementById('state-pill');
-    var stDot = document.getElementById('state-dot');
-    var video = document.getElementById('v');
-
-    function setState(txt, cls){
-      stEl.textContent = txt;
-      stDot.className = 'dot' + (cls ? (' '+cls) : '');
-    }
-
+    // ── HLS player (composite mosaic) ──
+    var lagEl=document.getElementById('hls-lag'), video=document.getElementById('v');
     if (Hls.isSupported()) {
-      var frags = {};
-      function rememberFrag(f){
-        if (f.programDateTime == null) return;
-        frags[f.sn] = { pdt: f.programDateTime, start: f.start, dur: f.duration };
-        var keys = Object.keys(frags);
-        if (keys.length > 8) { keys.sort(function(a,b){ return +a - +b; }); delete frags[keys[0]]; }
-      }
-      var hls = new Hls({ liveSyncDurationCount: 1, liveMaxLatencyDurationCount: 2, enableWorker: true, lowLatencyMode: true });
-      hls.loadSource('/hls/composite/index.m3u8');
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function(){ setState('live', 'live'); video.play(); });
-      hls.on(Hls.Events.LEVEL_LOADED, function(ev, data){ if (data.details && data.details.fragments) data.details.fragments.forEach(rememberFrag); });
-      hls.on(Hls.Events.FRAG_LOADED, function(ev, data){ rememberFrag(data.frag); });
-      hls.on(Hls.Events.ERROR, function(ev, data){
-        if (!data.fatal) return;
-        setState('offline', 'bad');
-        setTimeout(function(){ setState('connecting'); hls.loadSource('/hls/composite/index.m3u8'); }, 5000);
-      });
+      var frags={};
+      function rememberFrag(f){ if(f.programDateTime==null) return; frags[f.sn]={pdt:f.programDateTime,start:f.start,dur:f.duration}; var k=Object.keys(frags); if(k.length>8){k.sort(function(a,b){return +a-+b;}); delete frags[k[0]];} }
+      // Sit a few segments back from the live edge instead of riding it.
+      // Aggressive low-latency (liveSyncDurationCount:1 + lowLatencyMode)
+      // made hls.js overshoot and nudge currentTime backward on any jitter,
+      // re-showing an older frame for ~1 frame — the burned clock appeared to
+      // flap back a second. A 3-segment target with LL off plays monotonically
+      // at the cost of ~1-2s more latency.
+      var hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
+      hls.loadSource('/hls/composite/index.m3u8'); hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
+      hls.on(Hls.Events.LEVEL_LOADED, function(ev,data){ if(data.details&&data.details.fragments) data.details.fragments.forEach(rememberFrag); });
+      hls.on(Hls.Events.FRAG_LOADED, function(ev,data){ rememberFrag(data.frag); });
+      hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ hls.loadSource('/hls/composite/index.m3u8'); }, 5000); });
       setInterval(function(){
-        if (video.readyState < 2) return;
-        var ct = video.currentTime, match = null;
-        for (var k in frags) { var f = frags[k]; if (ct >= f.start && ct < f.start + f.dur) { match = f; break; } }
+        if (video.readyState<2) return;
+        var ct=video.currentTime, match=null;
+        for (var k in frags){ var f=frags[k]; if(ct>=f.start && ct<f.start+f.dur){match=f;break;} }
         if (!match) return;
-        var lag = Date.now() - (match.pdt + (ct - match.start) * 1000);
-        if (lag < 0 || lag > 60000) return;
-        lagEl.textContent = lag.toFixed(0);
+        var lag=Date.now()-(match.pdt+(ct-match.start)*1000);
+        if (lag<0||lag>60000) return;
+        lagEl.textContent=lag.toFixed(0);
       }, 250);
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = '/hls/composite/index.m3u8';
-      video.addEventListener('loadedmetadata', function(){ setState('live', 'live'); video.play(); });
+      video.src='/hls/composite/index.m3u8'; video.addEventListener('loadedmetadata', function(){ video.play(); });
     }
   </script>
 </body>

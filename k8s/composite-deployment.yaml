@@ -35,15 +35,11 @@ spec:
         # pod's podAntiAffinity so the gateway has to bridge two nodes.
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Must land on a different node than the producer so the
-      # gateway's cross-node bridge actually fires.
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  mxl.qvest-digital.com/role: producer
-              topologyKey: kubernetes.io/hostname
+      # Pinned to n01. Writers are pinned MXL-n -> n0n, leaving no
+      # writer-free node, so the consumer co-locates with writer-mxl-1
+      # (flow 1 reads locally; flows 2-4 arrive cross-node over RDMA).
+      nodeSelector:
+        kubernetes.io/hostname: n01
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -76,10 +72,10 @@ spec:
             # lays out a 2x2 mosaic automatically (grid = ceil(sqrt(n))).
             - name: MXL_FLOW_IDS
               value: >-
-                a1000000-0000-0000-0000-000000000001
-                a1000000-0000-0000-0000-000000000002
-                a1000000-0000-0000-0000-000000000003
-                a1000000-0000-0000-0000-000000000004
+                d4d00000-0000-0000-0000-000000000001
+                d4d00000-0000-0000-0000-000000000002
+                d4d00000-0000-0000-0000-000000000003
+                d4d00000-0000-0000-0000-000000000004
             # Per-flow RDMA-delivery metrics endpoint the multiviewer
             # frontend polls (proxied by the caddy sidecar at /stats.json).
             - name: MXL_STATS_PORT

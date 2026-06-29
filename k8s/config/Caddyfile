@@ -18,6 +18,12 @@
     reverse_proxy http://composite:9090
   }
 
+  # Detailed per-flow metrics (writer + compositor + gateway/mirror) and the
+  # flow-kill control, served by the demo-metrics aggregator.
+  handle /api/* {
+    reverse_proxy http://demo-metrics:8088
+  }
+
   handle_path /hls/* {
     reverse_proxy http://localhost:8888 {
       header_down Location "^/(.*)$" "/hls/$1"

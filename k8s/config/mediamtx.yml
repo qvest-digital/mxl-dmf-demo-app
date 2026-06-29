@@ -6,20 +6,16 @@ webrtcAddress: :8889
 hls: true
 hlsAddress: :8888
 hlsAlwaysRemux: true
-hlsVariant: lowLatency
-# Tight muxer state so clients land near the live edge. Default
-# hlsSegmentCount=7 with ~1s segments meant up to 7s of stale
-# segments could be served first; combined with ffmpeg back-pressure
-# on the native path that produced visible multi-minute drift between
-# the two MXL tiles. Keep just enough history for HLS-LL part
-# rewind without trapping the player in the past.
-# hlsVariant: lowLatency mandates hlsSegmentCount >= 7. Keep at the
-# minimum + short segments so playlist history stays small and clients
-# land near the live edge. Player-side aggressive follow lives in the
-# hls.js init in config/index.html.
+# Standard MPEG-TS HLS, NOT low-latency. LL-HLS (parts, hlsPartDuration)
+# combined with hls.js edge-chasing made the player micro-rewind — it
+# re-displayed already-shown frames, so the burned-in clock appeared to
+# flap backward even though the encoded stream is strictly monotonic
+# (verified: ffmpeg decodes the segments in order). Classic segmented HLS
+# plays smoothly and monotonically at the cost of a few seconds of
+# latency, which is fine for a multiviewer.
+hlsVariant: mpegts
 hlsSegmentCount: 7
 hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
 
 rtsp: true
 rtspAddress: :8554
@@ -39,28 +35,28 @@ paths:
   # the multiviewer page itself plays the pre-composited mosaic
   # (/hls/composite) and never touches these.
   mxl-1:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000001
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000001
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-2:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000002
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000002
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-3:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000003
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000003
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
   mxl-4:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000004
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000004
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high

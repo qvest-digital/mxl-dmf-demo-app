@@ -1,25 +1,20 @@
 # SPDX-FileCopyrightText: 2025 Contributors to the Media eXchange Layer project.
 # SPDX-License-Identifier: Apache-2.0
 #
-# MXL writers — one Deployment per flow, one writer container per pod,
-# one v210 test-pattern flow per writer. Each pod produces a single flow
-# into the per-node MXL domain at /run/mxl/domain; the mxl-k8s gateway
-# DaemonSet mirrors it cross-node over RDMA (verbs) to the consumer
-# (composite + mediamtx), so every tile in the 2x2 multiviewer is a
-# distinct producer pod exercising the cross-node fabric.
+# MXL writers — one Deployment per flow, one writer container per pod, one
+# v210 static-pattern flow per writer. Each writer is pinned to the node whose
+# index matches its tile (MXL-n -> n0n) via nodeSelector, so placement is
+# deterministic and the kill-and-recover demo is predictable.
 #
-# Scheduling:
-#   - requiredAntiAffinity vs role=consumer keeps every writer OFF the
-#     composite/mediamtx node, so all four flows must be RDMA-mirrored
-#     (none are read locally).
-#   - preferredAntiAffinity vs role=producer spreads the writers across
-#     the remaining nodes when capacity allows.
-# Apply the consumer (composite/mediamtx) first so it claims its node
-# before the writers fill the others.
+# Consumer note: the compositor + mediamtx are pinned to n01 (there is no
+# writer-free node on a 4-node cluster with 4 pinned writers), so flow 1
+# (MXL-1, on n01) is read locally while flows 2-4 are mirrored cross-node over
+# RDMA. The per-flow metrics panel shows each flow's mirror sourceNode, so the
+# local-vs-RDMA distinction is visible.
 #
-# Adding/removing a flow: add/remove a Deployment here and the matching
-# MxlReceiver in mxl-receivers.yaml, then bump MXL_FLOW_IDS on the
-# compositor. Flows 1-4 == a1000000-...-0001 .. 0004 == tiles MXL-1..4.
+# Patterns are STATIC (smpte/smpte75/smpte100/gradient): animated videotestsrc
+# patterns (snow, ball, zone-plate, ...) hang the testsrc at v210 1080p and
+# freeze the tile. Keep these static.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -42,20 +37,8 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  mxl.qvest-digital.com/role: consumer
-              topologyKey: kubernetes.io/hostname
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        kubernetes.io/hostname: n01
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -63,16 +46,11 @@ spec:
       imagePullSecrets:
         - name: demo-app-ghcr-pull
       initContainers:
-        # Make the shared per-node domain world-writable (gateway + agent
-        # co-tenants run as non-1000 uids) and wipe only THIS writer's
-        # stale flow dir so a previous incarnation's on-disk ABI can't be
-        # reused. Never blanket-rm the domain — that strands co-tenant
-        # mirror handles.
         - name: prepare-domain
           image: busybox:1.36
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000001
+              value: d4d00000-0000-0000-0000-000000000001
           command:
             - sh
             - -c
@@ -91,7 +69,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000001
+              value: d4d00000-0000-0000-0000-000000000001
             - name: MXL_FLOW_PATTERN
               value: smpte
             - name: MXL_FLOW_OVERLAY
@@ -150,20 +128,8 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  mxl.qvest-digital.com/role: consumer
-              topologyKey: kubernetes.io/hostname
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        kubernetes.io/hostname: n02
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -175,7 +141,7 @@ spec:
           image: busybox:1.36
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000002
+              value: d4d00000-0000-0000-0000-000000000002
           command:
             - sh
             - -c
@@ -194,9 +160,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000002
+              value: d4d00000-0000-0000-0000-000000000002
             - name: MXL_FLOW_PATTERN
-              value: snow
+              value: smpte75
             - name: MXL_FLOW_OVERLAY
               value: MXL-2
           command: ["/bin/sh", "-c"]
@@ -253,20 +219,8 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  mxl.qvest-digital.com/role: consumer
-              topologyKey: kubernetes.io/hostname
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        kubernetes.io/hostname: n03
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -278,7 +232,7 @@ spec:
           image: busybox:1.36
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000003
+              value: d4d00000-0000-0000-0000-000000000003
           command:
             - sh
             - -c
@@ -297,9 +251,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000003
+              value: d4d00000-0000-0000-0000-000000000003
             - name: MXL_FLOW_PATTERN
-              value: ball
+              value: smpte100
             - name: MXL_FLOW_OVERLAY
               value: MXL-3
           command: ["/bin/sh", "-c"]
@@ -356,20 +310,8 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  mxl.qvest-digital.com/role: consumer
-              topologyKey: kubernetes.io/hostname
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        kubernetes.io/hostname: n04
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -381,7 +323,7 @@ spec:
           image: busybox:1.36
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000004
+              value: d4d00000-0000-0000-0000-000000000004
           command:
             - sh
             - -c
@@ -400,9 +342,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
-              value: a1000000-0000-0000-0000-000000000004
+              value: d4d00000-0000-0000-0000-000000000004
             - name: MXL_FLOW_PATTERN
-              value: smpte75
+              value: gradient
             - name: MXL_FLOW_OVERLAY
               value: MXL-4
           command: ["/bin/sh", "-c"]

@@ -16,7 +16,7 @@ kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-1
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000001"
+  flowID: "d4d00000-0000-0000-0000-000000000001"
   provider: tcp
   podSelector:
     matchLabels:
@@ -27,7 +27,7 @@ kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-2
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000002"
+  flowID: "d4d00000-0000-0000-0000-000000000002"
   provider: tcp
   podSelector:
     matchLabels:
@@ -38,7 +38,7 @@ kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-3
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000003"
+  flowID: "d4d00000-0000-0000-0000-000000000003"
   provider: tcp
   podSelector:
     matchLabels:
@@ -49,7 +49,7 @@ kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-4
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000004"
+  flowID: "d4d00000-0000-0000-0000-000000000004"
   provider: tcp
   podSelector:
     matchLabels:

@@ -64,6 +64,14 @@ namespace
     constexpr int kOutH = 720;
     std::int64_t g_grainBytes = 0;
 
+    // Same-node (local producer ring) reads can report grains as partially
+    // written (validSlices<totalSlices) even though the payload is whole —
+    // the producer commits differently than a gateway-written mirror grain.
+    // MXL_ACCEPT_PARTIAL=1 makes the reader accept such grains (still
+    // skipping ones explicitly flagged INVALID), which is what lets the
+    // consumer-co-located tile read its local flow.
+    bool g_acceptPartial = false;
+
     void on_signal(int) { g_exit.store(true, std::memory_order_relaxed); }
 
     std::string env_or(char const* key, char const* fallback)
@@ -232,6 +240,25 @@ namespace
         ::g_object_set(G_OBJECT(w->appsrc), "caps", caps, nullptr);
         ::gst_caps_unref(caps);
 
+        // Staleness watchdog. A mirror can go silent — writer churn, mirror
+        // re-form, a gateway roll leaving a half-open RDMA endpoint — while its
+        // ring stays readable: the head index simply stops advancing and reads
+        // keep returning the same stale grain forever, with no error to key
+        // off. Track the head; if it freezes for kStallReopen ticks (~2s at the
+        // grain rate), drop the reader so the guard at the loop top re-attaches
+        // it to the live ring. This is what insulates the compositor from
+        // upstream churn without an external restart.
+        std::uint64_t lastHead = 0;
+        int stallTicks = 0;
+        constexpr int kStallReopen = 60;
+        // Highest grain index already pushed downstream. The scan below picks
+        // the freshest COMPLETE grain, but when head-kLagGrains is briefly
+        // mid-write it falls back to an older grain — which, versus the
+        // previous tick, would rewind the burned-in clock by a frame. Never
+        // emit a grain older than the last one shown: hold the last frame
+        // instead. Reset on reopen (a recreated flow restarts its indices).
+        std::int64_t lastShownIndex = -1;
+
         auto nextTick = clock::now();
         auto pace = [&]() {
             nextTick += period;
@@ -242,53 +269,138 @@ namespace
 
         while (!g_exit.load(std::memory_order_relaxed))
         {
+            // Re-open a reader dropped by the watchdog or the FLOW_INVALID path
+            // below, once the flow is published again. Keeps reopen logic in one
+            // place so both stalls and hard tear-downs recover identically.
+            if (w->reader == nullptr)
+            {
+                bool active = false;
+                if (::mxlIsFlowActive(w->instance, w->flowId.c_str(), &active) == MXL_STATUS_OK && active &&
+                    ::mxlCreateFlowReader(w->instance, w->flowId.c_str(), "", &w->reader) == MXL_STATUS_OK)
+                {
+                    ::mxlFlowReaderGetConfigInfo(w->reader, &w->config);
+                    lastHead = 0;
+                    stallTicks = 0;
+                    lastShownIndex = -1;
+                    g_print("[%zu] %s reader re-opened\n", w->index, w->flowId.c_str());
+                }
+                else
+                {
+                    pace();  // flow not back yet; hold cadence and retry
+                    continue;
+                }
+            }
+
             // Resolve the freshest finished grain from the live head each tick,
             // rather than advancing a cursor — decouples our cadence from the
             // writer's (over)production rate and self-heals index jumps.
             ::mxlFlowRuntimeInfo rt{};
             bool haveIndex = ::mxlFlowReaderGetRuntimeInfo(w->reader, &rt) == MXL_STATUS_OK &&
                 static_cast<std::int64_t>(rt.headIndex) > kLagGrains;
-            std::uint64_t requestedIndex =
-                haveIndex ? rt.headIndex - static_cast<std::uint64_t>(kLagGrains) : 0;
 
+            // Head not advancing? Count consecutive frozen ticks and drop the
+            // reader once it's clearly wedged; a healthy flow resets the count.
+            if (haveIndex && rt.headIndex == lastHead)
+            {
+                if (++stallTicks >= kStallReopen)
+                {
+                    g_print("[%zu] %s head frozen %d ticks — reopening reader\n",
+                        w->index, w->flowId.c_str(), stallTicks);
+                    ::mxlReleaseFlowReader(w->instance, w->reader);
+                    w->reader = nullptr;
+                    stallTicks = 0;
+                    pace();
+                    continue;
+                }
+            }
+            else if (haveIndex)
+            {
+                lastHead = rt.headIndex;
+                stallTicks = 0;
+            }
+
+            // Find the freshest COMPLETE grain. The gateway commits a mirror
+            // grain fully before advancing the head, so head-kLagGrains is
+            // already complete for cross-node (mirrored) flows. A local
+            // producer ring — the node-pinned tile whose writer is co-located
+            // with the consumer, so there is no mirror — can report its newest
+            // grains as still-being-written (validSlices<totalSlices). Scan a
+            // few grains further back for the first complete one; kScanDepth
+            // stays inside the shallow ring. Mirrored flows take the first
+            // candidate (head-kLagGrains), so they pay no extra latency.
+            constexpr int kScanDepth = 3;
             ::mxlGrainInfo info{};
             std::uint8_t* payload = nullptr;
-            // The requested grain is already finished, so this returns at once;
-            // the 100 ms cap only covers a flow that is briefly between writes.
-            auto ret = haveIndex
-                ? ::mxlFlowReaderGetGrain(w->reader, requestedIndex, 100'000'000ULL, &info, &payload)
-                : MXL_ERR_FLOW_INVALID;
-
-            if (ret != MXL_STATUS_OK)
+            bool got = false;
+            bool readerDead = false;
+            std::int64_t chosenIdx = -1;
+            int lastRet = 0;
+            ::mxlGrainInfo lastInfo{};
+            for (int back = 0; haveIndex && back <= kScanDepth; ++back)
             {
-                w->framesMissed.fetch_add(1, std::memory_order_relaxed);
-                if (ret == MXL_ERR_FLOW_INVALID && haveIndex)
+                std::int64_t idx =
+                    static_cast<std::int64_t>(rt.headIndex) - kLagGrains - back;
+                if (idx < 0) break;
+                auto ret = ::mxlFlowReaderGetGrain(w->reader,
+                    static_cast<std::uint64_t>(idx), 100'000'000ULL, &info, &payload);
+                lastRet = static_cast<int>(ret);
+                if (ret != MXL_STATUS_OK)
                 {
-                    // Flow was torn down / recreated (writer or full txDarwin
-                    // restart) and the old reader handle is dead. Once the flow
-                    // is back, release the stale reader and open a fresh one.
-                    bool active = false;
-                    if (::mxlIsFlowActive(w->instance, w->flowId.c_str(), &active) == MXL_STATUS_OK && active)
-                    {
-                        ::mxlReleaseFlowReader(w->instance, w->reader);
-                        w->reader = nullptr;
-                        if (::mxlCreateFlowReader(w->instance, w->flowId.c_str(), "", &w->reader) == MXL_STATUS_OK)
-                        {
-                            ::mxlFlowReaderGetConfigInfo(w->reader, &w->config);
-                            g_print("[%zu] %s reader re-opened after FLOW_INVALID\n",
-                                w->index, w->flowId.c_str());
-                        }
-                    }
+                    if (ret == MXL_ERR_FLOW_INVALID) { readerDead = true; break; }
+                    continue;  // grain aged out / not ready — try an older one
+                }
+                lastInfo = info;
+                // Accept any fully-written grain regardless of the INVALID
+                // flag. The gateway's mirror path does the same — it propagates
+                // skipped/backfill grains — so mirrored flows always arrive
+                // flags=0. A co-located LOCAL read sees the producer ring
+                // directly, where mxl-gst-testsrc's constant PTS-gap backfill
+                // grains are flagged INVALID (0x1) yet carry a full, valid
+                // payload (validSlices==totalSlices, full grainSize). Rejecting
+                // them left the consumer-co-located tile empty. Only skip a
+                // genuinely half-written grain (validSlices<totalSlices), and
+                // scan an older one — mirrored flows still hit head-kLagGrains
+                // on the first try.
+                bool partial = info.validSlices < info.totalSlices;
+                if (partial && !g_acceptPartial) continue;
+                chosenIdx = idx;
+                got = true;
+                break;
+            }
+
+            if (!got)
+            {
+                auto missed = w->framesMissed.fetch_add(1, std::memory_order_relaxed) + 1;
+                if (missed % 150 == 1)  // ~once / 5s: diagnose why nothing is readable
+                    g_print("[%zu] %s no complete grain: head=%llu lastRet=%d "
+                            "valid=%u total=%u flags=0x%x size=%zu\n",
+                        w->index, w->flowId.c_str(),
+                        static_cast<unsigned long long>(rt.headIndex), lastRet,
+                        lastInfo.validSlices, lastInfo.totalSlices,
+                        static_cast<unsigned>(lastInfo.flags),
+                        static_cast<std::size_t>(lastInfo.grainSize));
+                if (readerDead && w->reader != nullptr)
+                {
+                    // Flow torn down / recreated and the handle is dead. Drop
+                    // it; the reopen guard at the loop top re-attaches.
+                    ::mxlReleaseFlowReader(w->instance, w->reader);
+                    w->reader = nullptr;
                 }
                 pace();  // hold cadence even while a flow is down
                 continue;
             }
 
-            if (info.validSlices < info.totalSlices || (info.flags & MXL_GRAIN_FLAG_INVALID) != 0)
+            // Never rewind. If the freshest complete grain isn't newer than
+            // what we already pushed (head-kLagGrains was mid-write so the scan
+            // fell back to an older grain), hold the last frame instead of
+            // emitting an older one — emitting it would flap the burned-in
+            // clock backward by a frame.
+            if (chosenIdx <= lastShownIndex)
             {
                 pace();
                 continue;
             }
+            lastShownIndex = chosenIdx;
 
             // Zero-copy would mean handing the payload pointer to gst with a
             // custom GstAllocator that knows libmxl's ring buffer lifetime;
@@ -371,6 +483,7 @@ int main(int argc, char** argv)
     if (g_rows < 1) g_rows = 1;
     int const TILE_W = OUT_W / g_cols;
     int const TILE_H = OUT_H / g_rows;
+    g_acceptPartial = !env_or("MXL_ACCEPT_PARTIAL", "").empty();
     g_grainBytes = v210GrainBytes(g_frameW, g_frameH);
     g_print("Grid: %zu flows -> %dx%d, tile %dx%d, grainBytes %lld\n",
         flowIds.size(), g_cols, g_rows, TILE_W, TILE_H,
