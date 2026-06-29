@@ -64,14 +64,6 @@ namespace
     constexpr int kOutH = 720;
     std::int64_t g_grainBytes = 0;
 
-    // Same-node (local producer ring) reads can report grains as partially
-    // written (validSlices<totalSlices) even though the payload is whole —
-    // the producer commits differently than a gateway-written mirror grain.
-    // MXL_ACCEPT_PARTIAL=1 makes the reader accept such grains (still
-    // skipping ones explicitly flagged INVALID), which is what lets the
-    // consumer-co-located tile read its local flow.
-    bool g_acceptPartial = false;
-
     void on_signal(int) { g_exit.store(true, std::memory_order_relaxed); }
 
     std::string env_or(char const* key, char const* fallback)
@@ -319,16 +311,22 @@ namespace
                 stallTicks = 0;
             }
 
-            // Find the freshest COMPLETE grain. The gateway commits a mirror
-            // grain fully before advancing the head, so head-kLagGrains is
-            // already complete for cross-node (mirrored) flows. A local
-            // producer ring — the node-pinned tile whose writer is co-located
-            // with the consumer, so there is no mirror — can report its newest
-            // grains as still-being-written (validSlices<totalSlices). Scan a
-            // few grains further back for the first complete one; kScanDepth
-            // stays inside the shallow ring. Mirrored flows take the first
-            // candidate (head-kLagGrains), so they pay no extra latency.
-            constexpr int kScanDepth = 3;
+            // Take the freshest grain, scanning from the live head downward,
+            // and key everything off the grain's OWN index (info.index), not
+            // the index we asked for. info.index is "the epoch grain index the
+            // ring-buffer slot currently holds" — so it exposes a STALE read:
+            // mxl-gst-testsrc constantly backfills the grain grid, and a
+            // skipped slot still holds the frame from one ring-depth ago. If we
+            // probe such a slot, GetGrain returns it but info.index is the OLD
+            // index, not what we requested. The previous code trusted the
+            // requested index for ordering, so it would show that old frame
+            // under a "newer" label and the burned clock flapped back. By
+            // ordering on info.index instead (and holding when it isn't newer
+            // than the last shown), the actual CONTENT advances monotonically —
+            // which is exactly the invariant the gateway's sequential transfer
+            // gives the cross-node mirrors. Accept the INVALID flag (every
+            // local-ring grain carries it); only skip a half-written grain.
+            constexpr int kScanDepth = 5;
             ::mxlGrainInfo info{};
             std::uint8_t* payload = nullptr;
             bool got = false;
@@ -336,10 +334,9 @@ namespace
             std::int64_t chosenIdx = -1;
             int lastRet = 0;
             ::mxlGrainInfo lastInfo{};
-            for (int back = 0; haveIndex && back <= kScanDepth; ++back)
+            for (int back = 0; haveIndex && back < kScanDepth; ++back)
             {
-                std::int64_t idx =
-                    static_cast<std::int64_t>(rt.headIndex) - kLagGrains - back;
+                std::int64_t idx = static_cast<std::int64_t>(rt.headIndex) - back;
                 if (idx < 0) break;
                 auto ret = ::mxlFlowReaderGetGrain(w->reader,
                     static_cast<std::uint64_t>(idx), 100'000'000ULL, &info, &payload);
@@ -347,23 +344,11 @@ namespace
                 if (ret != MXL_STATUS_OK)
                 {
                     if (ret == MXL_ERR_FLOW_INVALID) { readerDead = true; break; }
-                    continue;  // grain aged out / not ready — try an older one
+                    continue;  // aged out / not ready — try one below
                 }
                 lastInfo = info;
-                // Accept any fully-written grain regardless of the INVALID
-                // flag. The gateway's mirror path does the same — it propagates
-                // skipped/backfill grains — so mirrored flows always arrive
-                // flags=0. A co-located LOCAL read sees the producer ring
-                // directly, where mxl-gst-testsrc's constant PTS-gap backfill
-                // grains are flagged INVALID (0x1) yet carry a full, valid
-                // payload (validSlices==totalSlices, full grainSize). Rejecting
-                // them left the consumer-co-located tile empty. Only skip a
-                // genuinely half-written grain (validSlices<totalSlices), and
-                // scan an older one — mirrored flows still hit head-kLagGrains
-                // on the first try.
-                bool partial = info.validSlices < info.totalSlices;
-                if (partial && !g_acceptPartial) continue;
-                chosenIdx = idx;
+                if (info.validSlices < info.totalSlices) continue;  // mid-write, try older
+                chosenIdx = static_cast<std::int64_t>(info.index);  // the slot's ACTUAL content index
                 got = true;
                 break;
             }
@@ -390,11 +375,11 @@ namespace
                 continue;
             }
 
-            // Never rewind. If the freshest complete grain isn't newer than
-            // what we already pushed (head-kLagGrains was mid-write so the scan
-            // fell back to an older grain), hold the last frame instead of
-            // emitting an older one — emitting it would flap the burned-in
-            // clock backward by a frame.
+            // Never rewind the CONTENT. chosenIdx is the grain's own index
+            // (info.index), so a stale slot — one whose index is older than
+            // what we already showed — is held here instead of displayed,
+            // keeping the burned-in clock monotonic. Clean mirror flows always
+            // have info.index == head, so they advance every tick.
             if (chosenIdx <= lastShownIndex)
             {
                 pace();
@@ -483,7 +468,6 @@ int main(int argc, char** argv)
     if (g_rows < 1) g_rows = 1;
     int const TILE_W = OUT_W / g_cols;
     int const TILE_H = OUT_H / g_rows;
-    g_acceptPartial = !env_or("MXL_ACCEPT_PARTIAL", "").empty();
     g_grainBytes = v210GrainBytes(g_frameW, g_frameH);
     g_print("Grid: %zu flows -> %dx%d, tile %dx%d, grainBytes %lld\n",
         flowIds.size(), g_cols, g_rows, TILE_W, TILE_H,
