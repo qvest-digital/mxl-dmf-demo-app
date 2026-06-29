@@ -12,6 +12,12 @@
     respond "ok" 200
   }
 
+  # Per-flow RDMA-delivery metrics from the compositor's stats server.
+  # Same-origin so the multiviewer page can poll it without CORS hassle.
+  handle /stats.json {
+    reverse_proxy http://composite:9090
+  }
+
   handle_path /hls/* {
     reverse_proxy http://localhost:8888 {
       header_down Location "^/(.*)$" "/hls/$1"

@@ -1,49 +1,186 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>MXL DMF COMPOSITE</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qvest · MXL RDMA Multiviewer</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400..800&display=swap" rel="stylesheet">
 <style>
+  :root {
+    --qv-orange: #F05012;
+    --qv-orange-hover: #F1581E;
+    --qv-teal: #004643;
+    --qv-lime: #C8F169;
+    --qv-ink: #0B090D;
+    --qv-white: #FFFFFF;
+    --qv-radius: 20px;
+    --qv-radius-pill: 999px;
+    --qv-font: "Funnel Sans", "Aeonik", "Inter", system-ui, -apple-system, sans-serif;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; background: #000; color: #ccc; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 11px; overflow: hidden; }
-  #bar { height: 22px; background: #0a0a0a; border-bottom: 1px solid #222; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
-  #bar .m { display: flex; gap: 14px; color: #aaa; }
-  #bar .m span b { color: #00cc00; }
-  #bar .m span.warn b { color: #ffaa00; }
-  #bar .m span.bad  b { color: #ff3030; }
-  #bar .brand { display: flex; align-items: center; gap: 14px; }
-  #src { display: flex; gap: 6px; }
-  #src button { background: #111; color: #888; border: 1px solid #333; font: inherit; text-transform: uppercase; letter-spacing: 1px; padding: 1px 8px; cursor: pointer; }
-  #src button.active { color: #00ff00; border-color: #00cc00; }
-  #stage { position: absolute; top: 22px; left: 0; right: 0; bottom: 0; background: #000; display: flex; align-items: center; justify-content: center; }
-  #stage video { width: 100%; height: 100%; background: #000; object-fit: contain; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--qv-font);
+    background: var(--qv-white);
+    color: var(--qv-ink);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* ── Top nav ─────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid #eee;
+    flex-wrap: wrap; gap: 10px;
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand .logo {
+    font-weight: 800; font-size: 26px; letter-spacing: -0.03em;
+    color: var(--qv-orange);
+  }
+  .brand .sub {
+    font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--qv-ink); opacity: .65;
+  }
+  .status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pill {
+    border-radius: var(--qv-radius-pill);
+    border: 2px solid var(--qv-orange);
+    color: var(--qv-orange);
+    background: transparent;
+    padding: .42em 1.1em;
+    font-weight: 600; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 7px;
+    white-space: nowrap;
+  }
+  .pill.solid { background: var(--qv-orange); color: #fff; border-color: var(--qv-orange); }
+  .pill b { font-weight: 800; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #bbb; display: inline-block; }
+  .dot.live { background: var(--qv-lime); box-shadow: 0 0 0 3px rgba(200,241,105,.35); }
+  .dot.bad  { background: var(--qv-orange); }
+
+  /* ── Main two-column ─────────────────────────────────── */
+  main {
+    flex: 1; display: grid;
+    grid-template-columns: minmax(0, 1.9fr) minmax(300px, .8fr);
+    gap: 22px; padding: 24px 28px;
+  }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+
+  .stage-wrap { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .stage {
+    position: relative; background: var(--qv-ink);
+    border-radius: var(--qv-radius); overflow: hidden;
+    aspect-ratio: 16 / 9; width: 100%;
+  }
+  .stage video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .stage .tag {
+    position: absolute; top: 14px; left: 14px;
+    background: var(--qv-lime); color: var(--qv-ink);
+    font-weight: 700; font-size: 12px; letter-spacing: .03em;
+    padding: 5px 12px; border-radius: var(--qv-radius-pill);
+  }
+  .headline {
+    font-weight: 800; line-height: 1.05; letter-spacing: -0.02em;
+    font-size: clamp(22px, 3vw, 34px);
+  }
+  .headline .accent { color: var(--qv-orange); }
+  .eyebrow { font-size: 13px; font-weight: 600; opacity: .6; letter-spacing: .05em; text-transform: uppercase; }
+
+  /* ── Metrics panel (teal dark block) ─────────────────── */
+  .panel {
+    background: var(--qv-teal); color: #fff;
+    border-radius: var(--qv-radius);
+    padding: 22px 20px; display: flex; flex-direction: column; gap: 16px;
+    /* signature diagonal cut on the bottom-left corner */
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 6%);
+  }
+  .panel h2 { font-size: 15px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; opacity: .8; }
+  .agg { display: flex; gap: 10px; flex-wrap: wrap; }
+  .agg .stat {
+    background: rgba(255,255,255,.07); border-radius: 14px;
+    padding: 10px 14px; flex: 1; min-width: 110px;
+  }
+  .agg .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .65; }
+  .agg .stat .v { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+  .agg .stat .v small { font-size: 12px; font-weight: 600; opacity: .7; }
+  .agg .stat .v.lime { color: var(--qv-lime); }
+
+  .flows { display: flex; flex-direction: column; gap: 10px; }
+  .flow {
+    background: rgba(255,255,255,.06); border-radius: 14px;
+    padding: 12px 14px; display: grid;
+    grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
+  }
+  .flow .name { font-weight: 800; font-size: 15px; }
+  .flow .metrics { display: flex; gap: 16px; justify-content: flex-end; }
+  .flow .metrics .m { text-align: right; }
+  .flow .metrics .m .k { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; }
+  .flow .metrics .m .v { font-size: 16px; font-weight: 700; }
+  .flow .metrics .m .v.lime { color: var(--qv-lime); }
+  .flow .metrics .m .v.warn { color: var(--qv-orange); }
+
+  footer { padding: 12px 28px; border-top: 1px solid #eee; font-size: 12px; opacity: .55; }
 </style>
 </head>
 <body>
-  <div id="bar">
+  <header>
     <div class="brand">
-      <span>MXL DMF COMPOSITE</span>
-      <div id="src">
-        <button data-path="composite" class="active">Composite</button>
-        <button data-path="txdarwin-out">txDarwin Out</button>
+      <span class="logo">qvest</span>
+      <span class="sub">MXL · RDMA Multiviewer</span>
+    </div>
+    <div class="status">
+      <span class="pill"><span class="dot" id="link-dot"></span> RDMA <b id="provider">verbs</b></span>
+      <span class="pill">HLS lag <b id="hls-lag">--</b> ms</span>
+      <span class="pill solid" id="state-pill"><span class="dot" id="state-dot"></span> <b id="state">connecting</b></span>
+      <span class="pill"><b id="clk">--:--:--</b></span>
+    </div>
+  </header>
+
+  <main>
+    <div class="stage-wrap">
+      <div>
+        <div class="eyebrow">Live composite — one shareable stream</div>
+        <div class="headline">Four producers, <span class="accent">one RDMA mosaic</span>.</div>
+      </div>
+      <div class="stage">
+        <span class="tag" id="grid-tag">2×2</span>
+        <video id="v" muted autoplay playsinline></video>
       </div>
     </div>
-    <div class="m">
-      <span>HLS LAG <b id="hls-lag">--</b> ms</span>
-      <span>STATE <b id="state">CONN</b></span>
-    </div>
-    <div><span id="clk">--:--:--</span></div>
-  </div>
-  <div id="stage">
-    <video id="v" muted autoplay playsinline></video>
-  </div>
+
+    <aside class="panel">
+      <h2>RDMA delivery</h2>
+      <div class="agg">
+        <div class="stat">
+          <div class="k">Throughput</div>
+          <div class="v lime"><span id="agg-mbps">--</span> <small>Mbit/s</small></div>
+        </div>
+        <div class="stat">
+          <div class="k">Grains / s</div>
+          <div class="v"><span id="agg-fps">--</span></div>
+        </div>
+        <div class="stat">
+          <div class="k">Tiles live</div>
+          <div class="v"><span id="agg-live">-</span><small>/<span id="agg-total">-</span></small></div>
+        </div>
+      </div>
+      <div class="flows" id="flows"></div>
+    </aside>
+  </main>
+
+  <footer>
+    Each tile is a dedicated writer pod producing one v210 flow; the mxl-k8s gateway mirrors every flow
+    cross-node over RDMA&nbsp;(verbs) into the compositor. Metrics are measured at the RDMA receive side.
+  </footer>
 
   <script>
     var clk = document.getElementById('clk');
-    var lagEl = document.getElementById('hls-lag');
-    var stEl = document.getElementById('state');
-    var video = document.getElementById('v');
-
     function pad(n){ return n<10 ? '0'+n : ''+n; }
     function tick(){
       var d = new Date();
@@ -51,10 +188,76 @@
     }
     setInterval(tick, 250); tick();
 
-    // Active stream path under /hls/<path>/index.m3u8. Switchable between the
-    // 9-flow composite and the txDarwin output via the source buttons.
-    var currentPath = 'composite';
-    function srcUrl(){ return '/hls/' + currentPath + '/index.m3u8'; }
+    // ── Per-flow RDMA metrics panel ────────────────────────────────
+    var flowsEl = document.getElementById('flows');
+    var cards = {};
+    function fmt(n, d){ return (n==null||isNaN(n)) ? '--' : n.toFixed(d==null?0:d); }
+
+    function ensureCard(i){
+      if (cards[i]) return cards[i];
+      var el = document.createElement('div');
+      el.className = 'flow';
+      el.innerHTML =
+        '<span class="dot" data-r="dot"></span>' +
+        '<span class="name" data-r="name">MXL-'+(i+1)+'</span>' +
+        '<span class="metrics">' +
+          '<span class="m"><div class="k">grains/s</div><div class="v" data-r="fps">--</div></span>' +
+          '<span class="m"><div class="k">Mbit/s</div><div class="v lime" data-r="mbps">--</div></span>' +
+          '<span class="m"><div class="k">dropped</div><div class="v" data-r="missed">--</div></span>' +
+        '</span>';
+      flowsEl.appendChild(el);
+      cards[i] = {
+        root: el,
+        dot: el.querySelector('[data-r=dot]'),
+        name: el.querySelector('[data-r=name]'),
+        fps: el.querySelector('[data-r=fps]'),
+        mbps: el.querySelector('[data-r=mbps]'),
+        missed: el.querySelector('[data-r=missed]')
+      };
+      return cards[i];
+    }
+
+    function renderStats(s){
+      document.getElementById('provider').textContent = s.provider || 'verbs';
+      document.getElementById('grid-tag').textContent = (s.cols||2)+'×'+(s.rows||2);
+      var totMbps = 0, totFps = 0, live = 0;
+      (s.flows||[]).forEach(function(f){
+        var c = ensureCard(f.i);
+        c.name.textContent = f.label || ('MXL-'+(f.i+1));
+        c.fps.textContent = fmt(f.fps, 1);
+        c.mbps.textContent = fmt(f.mbps, 0);
+        c.missed.textContent = f.missed;
+        c.missed.className = 'v' + (f.missed > 0 ? ' warn' : '');
+        c.dot.className = 'dot' + (f.live ? ' live' : ' bad');
+        totMbps += f.mbps || 0; totFps += f.fps || 0; if (f.live) live++;
+      });
+      document.getElementById('agg-mbps').textContent = fmt(totMbps, 0);
+      document.getElementById('agg-fps').textContent = fmt(totFps, 0);
+      document.getElementById('agg-live').textContent = live;
+      document.getElementById('agg-total').textContent = (s.flows||[]).length;
+      var ld = document.getElementById('link-dot');
+      ld.className = 'dot' + (live > 0 ? ' live' : ' bad');
+    }
+
+    function pollStats(){
+      fetch('/stats.json', { cache: 'no-store' })
+        .then(function(r){ return r.json(); })
+        .then(renderStats)
+        .catch(function(){ /* transient; keep last render */ });
+    }
+    setInterval(pollStats, 1000); pollStats();
+
+    // ── HLS player (composite mosaic) ──────────────────────────────
+    var lagEl = document.getElementById('hls-lag');
+    var stEl = document.getElementById('state');
+    var stPill = document.getElementById('state-pill');
+    var stDot = document.getElementById('state-dot');
+    var video = document.getElementById('v');
+
+    function setState(txt, cls){
+      stEl.textContent = txt;
+      stDot.className = 'dot' + (cls ? (' '+cls) : '');
+    }
 
     if (Hls.isSupported()) {
       var frags = {};
@@ -62,61 +265,31 @@
         if (f.programDateTime == null) return;
         frags[f.sn] = { pdt: f.programDateTime, start: f.start, dur: f.duration };
         var keys = Object.keys(frags);
-        if (keys.length > 8) {
-          keys.sort(function(a,b){ return +a - +b; });
-          delete frags[keys[0]];
-        }
+        if (keys.length > 8) { keys.sort(function(a,b){ return +a - +b; }); delete frags[keys[0]]; }
       }
       var hls = new Hls({ liveSyncDurationCount: 1, liveMaxLatencyDurationCount: 2, enableWorker: true, lowLatencyMode: true });
+      hls.loadSource('/hls/composite/index.m3u8');
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function(){ stEl.textContent = 'LIVE'; stEl.style.color = '#00ff00'; video.play(); });
+      hls.on(Hls.Events.MANIFEST_PARSED, function(){ setState('live', 'live'); video.play(); });
       hls.on(Hls.Events.LEVEL_LOADED, function(ev, data){ if (data.details && data.details.fragments) data.details.fragments.forEach(rememberFrag); });
       hls.on(Hls.Events.FRAG_LOADED, function(ev, data){ rememberFrag(data.frag); });
       hls.on(Hls.Events.ERROR, function(ev, data){
         if (!data.fatal) return;
-        stEl.textContent = 'OFF'; stEl.style.color = '#ff3030';
-        setTimeout(function(){
-          stEl.textContent = 'CONN'; stEl.style.color = '#ffaa00';
-          hls.loadSource(srcUrl());
-        }, 5000);
+        setState('offline', 'bad');
+        setTimeout(function(){ setState('connecting'); hls.loadSource('/hls/composite/index.m3u8'); }, 5000);
       });
-
-      function loadCurrent(){
-        frags = {};
-        lagEl.textContent = '--';
-        stEl.textContent = 'CONN'; stEl.style.color = '#ffaa00';
-        hls.loadSource(srcUrl());
-      }
-      loadCurrent();
-
-      // Source toggle: switch the single player between the available
-      // mediamtx HLS paths without reloading the page.
-      document.querySelectorAll('#src button').forEach(function(btn){
-        btn.addEventListener('click', function(){
-          var path = btn.getAttribute('data-path');
-          if (path === currentPath) return;
-          currentPath = path;
-          document.querySelectorAll('#src button').forEach(function(b){ b.classList.remove('active'); });
-          btn.classList.add('active');
-          loadCurrent();
-        });
-      });
-
-      // HLS+player lag. Same PDT trick as the old grid: subtract the
-      // wall-clock at which the visible frame was muxed from Date.now().
-      // This is the delta between the burned-in clock on the picture and
-      // the bar clock above — visible to the eye as a sanity check.
       setInterval(function(){
         if (video.readyState < 2) return;
-        var ct = video.currentTime;
-        var match = null;
+        var ct = video.currentTime, match = null;
         for (var k in frags) { var f = frags[k]; if (ct >= f.start && ct < f.start + f.dur) { match = f; break; } }
         if (!match) return;
         var lag = Date.now() - (match.pdt + (ct - match.start) * 1000);
         if (lag < 0 || lag > 60000) return;
         lagEl.textContent = lag.toFixed(0);
-        lagEl.parentElement.className = (lag < 2500 ? '' : (lag < 6000 ? 'warn' : 'bad'));
       }, 250);
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = '/hls/composite/index.m3u8';
+      video.addEventListener('loadedmetadata', function(){ setState('live', 'live'); video.play(); });
     }
   </script>
 </body>

@@ -1,0 +1,18 @@
+# ClusterIP for the compositor's /stats.json RDMA-metrics endpoint. The
+# caddy sidecar in the mediamtx pod reverse-proxies /stats.json here so
+# the multiviewer frontend can poll per-flow RDMA delivery metrics from
+# the same public origin as the HLS stream.
+apiVersion: v1
+kind: Service
+metadata:
+  name: composite
+  labels:
+    app: composite
+spec:
+  type: ClusterIP
+  selector:
+    app: composite
+  ports:
+    - name: stats
+      port: 9090
+      targetPort: 9090

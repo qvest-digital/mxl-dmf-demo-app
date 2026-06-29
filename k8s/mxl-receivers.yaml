@@ -3,25 +3,14 @@
 # per (flow, target-node) and the gateway DaemonSet sets up the
 # libmxl-fabrics handshake against the producer node.
 #
-# podSelector matches every Pod labelled
-# mxl.qvest-digital.com/role=consumer in the default namespace —
-# currently that's the compositor + mediamtx (both co-located on the
-# same node, so they share a single mirror per flow).
+# podSelector matches every Pod labelled mxl.qvest-digital.com/role=
+# consumer — the compositor + mediamtx (co-located on one node, sharing
+# a single mirror per flow).
 #
-# Producer side: writer-media-function-efa in mxl-dmf-terraform's
-# k8s/base/writer-deployment.yaml, label
-# mxl.qvest-digital.com/role=producer.
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-stream-native
-spec:
-  flowID: "5fbec3b1-1b0f-417d-9059-8b94a47197ed"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
+# Multiviewer flows 1-4 == the four writer-mxl-{1..4} Deployments in
+# writer-deployment.yaml == tiles MXL-1..4. provider here is the base
+# (EKS/EFA) default; the sc overlay patches it to verbs for the on-prem
+# RDMAoE fabric.
 apiVersion: mxl.qvest-digital.com/v1alpha1
 kind: MxlReceiver
 metadata:
@@ -66,53 +55,10 @@ spec:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
 ---
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-5
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000005"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-6
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000006"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-7
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000007"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-8
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000008"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
 # txDarwin output flow (produced by txdarwin-mxl-pipeline in
 # mxl-dmf-txdarwin-flux). Consumed by txdarwin-output-viewer, which
-# RTSP-publishes it to mediamtx path `txdarwin-out`.
+# RTSP-publishes it to mediamtx path `txdarwin-out`. Orthogonal to the
+# multiviewer; kept so the txdarwin demo path keeps working.
 apiVersion: mxl.qvest-digital.com/v1alpha1
 kind: MxlReceiver
 metadata:

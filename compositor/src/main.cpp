@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
@@ -48,6 +54,15 @@ namespace
     // payload ~20x — less producer load and less fabric traffic.
     int g_frameW = 1920;
     int g_frameH = 1080;
+
+    // Mosaic geometry + per-grain payload size, set in main() once the flow
+    // count is known. Read by the /stats.json server thread so the frontend
+    // can report the RDMA-delivered throughput per tile.
+    int g_cols = 1;
+    int g_rows = 1;
+    constexpr int kOutW = 1280;
+    constexpr int kOutH = 720;
+    std::int64_t g_grainBytes = 0;
 
     void on_signal(int) { g_exit.store(true, std::memory_order_relaxed); }
 
@@ -83,7 +98,101 @@ namespace
         std::thread thread;
         std::atomic<std::uint64_t> framesPushed{0};
         std::atomic<std::uint64_t> framesMissed{0};
+        // Delivered grain rate, refreshed by the STATS ticker every 5s.
+        // This is the rate at which RDMA-mirrored grains land in the
+        // consumer's domain — the per-flow RDMA delivery quality.
+        std::atomic<double> fps{0.0};
     };
+
+    // v210 packs 6 pixels into 16 bytes; the row stride is rounded up to a
+    // 48-pixel / 128-byte boundary. Per-grain payload = stride * height.
+    std::int64_t v210GrainBytes(int w, int h)
+    {
+        std::int64_t stride = static_cast<std::int64_t>((w + 47) / 48) * 128;
+        return stride * h;
+    }
+
+    // Minimal single-threaded HTTP/1.0 responder for /stats.json. No deps —
+    // the compositor already links gst/glib but a raw socket keeps the
+    // surface tiny. Serves the live per-flow RDMA metrics the qvest
+    // multiviewer frontend polls. CORS-open so the page can fetch it from
+    // the ingress origin.
+    void stats_http_server(std::vector<FlowWorker>* workers, int port)
+    {
+        int srv = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (srv < 0) { g_printerr("stats: socket() failed\n"); return; }
+        int one = 1;
+        ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr.sin_port = htons(static_cast<std::uint16_t>(port));
+        if (::bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+        {
+            g_printerr("stats: bind(:%d) failed\n", port);
+            ::close(srv);
+            return;
+        }
+        if (::listen(srv, 16) < 0) { g_printerr("stats: listen() failed\n"); ::close(srv); return; }
+        // Bound accept() so the loop can observe g_exit and shut down even
+        // when no client is connecting.
+        timeval tv{};
+        tv.tv_sec = 1;
+        ::setsockopt(srv, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        g_print("stats: serving /stats.json on :%d\n", port);
+
+        while (!g_exit.load(std::memory_order_relaxed))
+        {
+            int cli = ::accept(srv, nullptr, nullptr);
+            if (cli < 0) { if (g_exit.load(std::memory_order_relaxed)) break; continue; }
+
+            // Drain (and ignore) the request line/headers.
+            char buf[2048];
+            ::recv(cli, buf, sizeof(buf), 0);
+
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+            std::ostringstream body;
+            body << "{\"ts\":" << now
+                 << ",\"provider\":\"verbs\""
+                 << ",\"outW\":" << kOutW << ",\"outH\":" << kOutH
+                 << ",\"cols\":" << g_cols << ",\"rows\":" << g_rows
+                 << ",\"grainBytes\":" << g_grainBytes
+                 << ",\"flows\":[";
+            for (std::size_t i = 0; i < workers->size(); ++i)
+            {
+                auto& w = (*workers)[i];
+                double fps = w.fps.load(std::memory_order_relaxed);
+                double mbps = fps * static_cast<double>(g_grainBytes) * 8.0 / 1.0e6;
+                if (i) body << ',';
+                body << "{\"i\":" << i
+                     << ",\"flowId\":\"" << w.flowId << "\""
+                     << ",\"label\":\"MXL-" << (i + 1) << "\""
+                     << ",\"fps\":" << fps
+                     << ",\"pushed\":" << w.framesPushed.load()
+                     << ",\"missed\":" << w.framesMissed.load()
+                     << ",\"mbps\":" << mbps
+                     << ",\"live\":" << (fps > 1.0 ? "true" : "false")
+                     << "}";
+            }
+            body << "]}";
+            std::string json = body.str();
+
+            std::ostringstream resp;
+            resp << "HTTP/1.0 200 OK\r\n"
+                 << "Content-Type: application/json\r\n"
+                 << "Access-Control-Allow-Origin: *\r\n"
+                 << "Cache-Control: no-store\r\n"
+                 << "Content-Length: " << json.size() << "\r\n"
+                 << "Connection: close\r\n\r\n"
+                 << json;
+            std::string out = resp.str();
+            ::send(cli, out.data(), out.size(), 0);
+            ::close(cli);
+        }
+        ::close(srv);
+    }
 
     void worker_loop(FlowWorker* w)
     {
@@ -244,18 +353,28 @@ int main(int argc, char** argv)
         g_printerr("MXL_FLOW_IDS empty — set it to a space-separated list of UUIDs\n");
         return 2;
     }
-    if (flowIds.size() > 9)
+    if (flowIds.size() > 16)
     {
-        g_printerr("Only the first 9 flows fit a 3x3 grid; ignoring overflow\n");
-        flowIds.resize(9);
+        g_printerr("Only the first 16 flows fit the grid; ignoring overflow\n");
+        flowIds.resize(16);
     }
 
-    // Output is 1280x720 with 3x3 of 426x238 tiles. 1280/3 != 426*3 exactly
-    // (1278 vs 1280) — a 1-pixel right/bottom black band is fine for a demo.
-    constexpr int OUT_W = 1280;
-    constexpr int OUT_H = 720;
-    constexpr int TILE_W = 426;
-    constexpr int TILE_H = 238;
+    // Square-ish grid sized to the flow count: cols = ceil(sqrt(n)),
+    // rows = ceil(n / cols). 1->1x1, 2->2x1, 4->2x2, 9->3x3. Output stays
+    // 1280x720; tiles are OUT/cols x OUT/rows so they tile it exactly when
+    // the dimensions divide (4 flows -> 2x2 of 640x360).
+    constexpr int OUT_W = kOutW;
+    constexpr int OUT_H = kOutH;
+    g_cols = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(flowIds.size()))));
+    if (g_cols < 1) g_cols = 1;
+    g_rows = static_cast<int>((flowIds.size() + g_cols - 1) / g_cols);
+    if (g_rows < 1) g_rows = 1;
+    int const TILE_W = OUT_W / g_cols;
+    int const TILE_H = OUT_H / g_rows;
+    g_grainBytes = v210GrainBytes(g_frameW, g_frameH);
+    g_print("Grid: %zu flows -> %dx%d, tile %dx%d, grainBytes %lld\n",
+        flowIds.size(), g_cols, g_rows, TILE_W, TILE_H,
+        static_cast<long long>(g_grainBytes));
 
     // Build the pipeline as a single gst-launch-style description. compositor
     // has per-sink xpos/ypos/width/height set via pad properties; we write
@@ -270,8 +389,8 @@ int main(int argc, char** argv)
         "compositor name=comp background=black ";
     for (std::size_t i = 0; i < flowIds.size(); ++i)
     {
-        int row = static_cast<int>(i) / 3;
-        int col = static_cast<int>(i) % 3;
+        int row = static_cast<int>(i) / g_cols;
+        int col = static_cast<int>(i) % g_cols;
         pipelineDesc += "sink_" + std::to_string(i) +
             "::xpos=" + std::to_string(col * TILE_W) +
             " sink_" + std::to_string(i) +
@@ -412,22 +531,30 @@ int main(int argc, char** argv)
     // Without this it's impossible to tell whether the pipeline is silent
     // because workers aren't getting grains, or because grains are being
     // pushed but dropped downstream.
-    std::thread stats{[&workers]() {
+    constexpr int kStatsIntervalS = 5;
+    std::thread stats{[&workers, kStatsIntervalS]() {
         std::uint64_t last[16] = {0};
         while (!g_exit.load(std::memory_order_relaxed))
         {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::seconds(kStatsIntervalS));
             std::string line = "STATS";
             for (std::size_t i = 0; i < workers.size(); ++i)
             {
                 auto cur = workers[i].framesPushed.load();
                 auto delta = cur - last[i];
                 last[i] = cur;
+                workers[i].fps.store(static_cast<double>(delta) / kStatsIntervalS,
+                    std::memory_order_relaxed);
                 line += " [" + std::to_string(i) + "]=" + std::to_string(delta) + "fps";
             }
             g_print("%s\n", line.c_str());
         }
     }};
+
+    // RDMA-delivery metrics endpoint for the multiviewer frontend.
+    int statsPort = std::atoi(env_or("MXL_STATS_PORT", "9090").c_str());
+    if (statsPort <= 0) statsPort = 9090;
+    std::thread statsHttp{stats_http_server, &workers, statsPort};
 
     // Block on bus until ERROR / EOS / SIGTERM.
     auto* bus = ::gst_element_get_bus(pipeline);
@@ -471,6 +598,7 @@ int main(int argc, char** argv)
 
     g_print("Shutting down workers...\n");
     if (stats.joinable()) stats.join();
+    if (statsHttp.joinable()) statsHttp.join();
     for (auto& w : workers)
     {
         if (w.thread.joinable()) w.thread.join();

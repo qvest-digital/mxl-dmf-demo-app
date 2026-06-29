@@ -33,85 +33,45 @@ paths:
   # path on this node; the producer side runs on a different node and
   # writes into its own /run/mxl/domain — the gateway bridges them.
   #
-  # Eight MXL paths corresponding to the eight UUIDs in the writer
-  # deployment's MXL_FLOW_IDS env var. The first one is the legacy
-  # single-flow demo (kept always-on); the others stay on-demand so
-  # they don't burn CPU until a viewer actually requests them.
-  mxl-stream-native:
-    source: mxl:///run/mxl/domain/5fbec3b1-1b0f-417d-9059-8b94a47197ed
-    # Keep the libmxl reader + ffmpeg encoder running 24/7. With
-    # sourceOnDemand=true, the first viewer paid ~1-2s of cold-start
-    # latency on every transition from idle to active: libx264 init +
-    # filling the first GOP + draining the stdin/stdout pipes.
-    sourceOnDemand: false
-    mxlH264Preset: veryfast
-    mxlH264Profile: high
-    mxlH264Bitrate: 5000000
-
-  mxl-stream-2:
+  # Four on-demand MXL paths, one per multiviewer flow (a1..0001-0004 ==
+  # tiles MXL-1..4). On-demand so single-tile inspection is possible
+  # without burning encoder CPU until a viewer actually requests a tile;
+  # the multiviewer page itself plays the pre-composited mosaic
+  # (/hls/composite) and never touches these.
+  mxl-1:
     source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000001
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
-  mxl-stream-3:
+  mxl-2:
     source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000002
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
-  mxl-stream-4:
+  mxl-3:
     source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000003
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
-  mxl-stream-5:
+  mxl-4:
     source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000004
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
 
-  mxl-stream-6:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000005
-    sourceOnDemand: true
-    mxlH264Preset: ultrafast
-    mxlH264Profile: high
-    mxlH264Bitrate: 3000000
-
-  mxl-stream-7:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000006
-    sourceOnDemand: true
-    mxlH264Preset: ultrafast
-    mxlH264Profile: high
-    mxlH264Bitrate: 3000000
-
-  mxl-stream-8:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000007
-    sourceOnDemand: true
-    mxlH264Preset: ultrafast
-    mxlH264Profile: high
-    mxlH264Bitrate: 3000000
-
-  # SRT-bridge baseline: Sintel (Blender Foundation, CC-BY 3.0) looped via
-  # ffmpeg → SRT → mediamtx. Kept as the comparison reference for the
-  # MXL-vs-SRT latency story in the multiviewer DRIFT readout — pulling
-  # this would erase the only non-MXL tile and leave the metric without a
-  # control group.
-  sintel:
-    source: srt://loop-sintel:9000?mode=caller
-    sourceOnDemand: true
-
-  # Compositor sink. The composite pod (ffmpeg in k8s/composite-deployment.yaml)
-  # pulls all nine tile paths back via SRT, builds a 3x3 mosaic with burned-in
-  # tile labels + global clock, and pushes the mosaic here. No source: line =
-  # publisher-mode path, ready to receive an SRT/RTSP/RTMP/WebRTC publisher.
-  # The multiviewer landing page plays /hls/composite/index.m3u8 directly so
-  # the demo is one shareable URL with no per-tile JS player pool.
+  # Compositor sink. The composite pod (k8s/composite-deployment.yaml)
+  # reads the four MXL flows zero-copy, builds the 2x2 mosaic with
+  # burned-in tile labels + global clock, and pushes the mosaic here.
+  # No source: line = publisher-mode path. The multiviewer landing page
+  # plays /hls/composite/index.m3u8 directly so the demo is one
+  # shareable URL.
   composite: {}
 
   # txDarwin output. Publisher-mode (no source: line) — the

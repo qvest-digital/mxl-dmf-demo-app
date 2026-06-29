@@ -5,10 +5,9 @@ resources:
   - ghcr-pull-secret.yaml
   - mediamtx-deployment.yaml
   - mediamtx-service.yaml
-  - loop-deployments.yaml
   - writer-deployment.yaml
-  - mxl-exporter-podmonitor.yaml
   - composite-deployment.yaml
+  - composite-service.yaml
   - txdarwin-output-viewer.yaml
   - mxl-receivers.yaml
 
