@@ -110,3 +110,8 @@ paths:
     mxlH264Preset: veryfast
     mxlH264Profile: high
     mxlH264Bitrate: 5000000
+    # Force a keyframe every 30 frames (~1s @30fps) like the other paths. Without
+    # it the encoder's default GOP is large/irregular, so the HLS segmenter can
+    # only cut a segment when a sparse keyframe arrives → segments run longer
+    # than 1s, adding latency and jitter to the SRT-camera view.
+    mxlH264IDRPeriod: 30
