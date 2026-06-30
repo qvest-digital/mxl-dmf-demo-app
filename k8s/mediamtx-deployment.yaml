@@ -31,11 +31,8 @@ spec:
       # pods. Co-location is required because hostPath domain mounts
       # are per-node; running mediamtx on a different node from the
       # compositor would give it an empty /run/mxl/domain.
-      # Pin to n04 — the only node with NO writer, so every flow reaches
-      # mediamtx via a cross-node RDMA mirror (the showcase point). hostPath
-      # /run/mxl/domain is per-node, so mediamtx must sit where the mirrors land.
-      nodeSelector:
-        kubernetes.io/hostname: n04
+      # No node pinning: schedule anywhere; the operator targets each
+      # flow's mirror at whatever node mediamtx lands on (adaptive, portable).
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"

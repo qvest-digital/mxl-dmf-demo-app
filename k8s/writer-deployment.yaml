@@ -37,8 +37,19 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: n01
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -128,8 +139,19 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: n02
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -219,8 +241,19 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: n03
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -315,8 +348,19 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: n04
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
