@@ -33,11 +33,9 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 14px 28px; border-bottom: 1px solid #eee; flex-wrap: wrap; gap: 10px;
   }
-  .brand { display: flex; align-items: baseline; gap: 12px; }
-  .brand .logo {
-    font-weight: 800; font-size: 26px; letter-spacing: 0.02em;
-    color: var(--qv-orange); text-transform: uppercase;
-  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo { display: flex; }
+  .brand .logo svg { height: 28px; width: auto; display: block; }
   .brand .sub {
     font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
     text-transform: uppercase; color: var(--qv-ink); opacity: .65;
@@ -56,17 +54,35 @@
 
   main {
     flex: 1; display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(460px, 1fr);
     gap: 22px; padding: 24px 28px;
   }
   @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
 
   .stage-wrap { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  .stage {
-    position: relative; background: var(--qv-ink);
-    border-radius: var(--qv-radius); overflow: hidden; aspect-ratio: 16 / 9; width: 100%;
+  /* No forced aspect — the video shows at its native ratio (the mosaic
+     layout changes: 2x2, a tall 1x3 column, etc.), height-capped to the
+     viewport and centered. Avoids pillar/letterbox black bars around a
+     non-16:9 mosaic. */
+  /* Three adjacent per-flow HLS players (no compositor). Each flow is encoded
+     to its own HLS rendition by mediamtx reading the cross-node RDMA mirror;
+     each card carries a qvest lime badge naming the producing node. */
+  /* Two columns: MXL-1 + MXL-2 on row 1, MXL-3 flows to row 2. */
+  .players { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0; align-items: start; }
+  .playercard { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .pc-video {
+    width: 100%; aspect-ratio: 16 / 9; object-fit: contain;
+    background: #000; border-radius: var(--qv-radius); display: block;
   }
-  .stage video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .pc-badge {
+    display: flex; align-items: baseline; gap: 10px;
+    background: var(--qv-lime); color: var(--qv-ink);
+    border-radius: 12px; padding: 9px 14px;
+  }
+  .pc-badge.down { background: var(--qv-orange); color: #fff; }
+  .pc-badge .pc-mxl { font-weight: 800; font-size: 16px; letter-spacing: -.01em; }
+  .pc-badge .pc-origin { margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
+  .pc-badge .pc-node { font-weight: 800; font-size: 16px; }
   .headline {
     font-weight: 800; line-height: 1.05; letter-spacing: -0.02em;
     font-size: clamp(22px, 3vw, 34px);
@@ -129,7 +145,7 @@
 <body>
   <header>
     <div class="brand">
-      <span class="logo">qvest</span>
+      <span class="logo" aria-label="Qvest"><svg viewBox="0 0 2026 504" role="img" xmlns="http://www.w3.org/2000/svg"><g fill="#f05012"><path d="M249.999.002c145.999-.5,249.999,104,249.999,250,0,60-17.5,115.499-52,158.999l64,90.999H249.999C104,500,0,396,0,250.001S104,.502,249.999.002ZM389.498,325c10-20.5,15.5-46.999,15.5-74.999,0-93-62-158.999-155-158.999S94.999,157.001,94.999,250.001s62,158.999,154.999,158.999h81c.5,0,1.5,0,2-.501l-110.999-158.499h115l52.5,74.999Z"/><path d="M718.993,414l92.999-273.998h102l-131.499,359.998h-128.999l-131.499-359.998h102l92.999,273.998h2Z"/><path d="M1275.006,359h-265.998c9,37,38.5,59,101.5,59h118.499v82h-118.499c-136,0-201.499-70-201.499-180,0-108.999,74.999-183.999,183.999-183.999,109.999,0,181.999,72.499,181.999,183.999v39ZM1181.007,286c-7-41.5-34-69.999-86.999-69.999-52,0-79,32-87,69.999h173.999Z"/><path d="M1443.004,222.001c-21.001,0-32.5,10.501-32.5,28.5s11.5,28.5,32.5,28.5h96.499c68,0,114.5,41.5,114.5,110.499s-46.5,110.499-114.5,110.499h-246.499v-82h235.5c21,0,32.499-11.5,32.499-28.499s-11.5-28.5-32.499-28.5h-96.5c-68,0-114.5-41.5-114.5-110.499s46.5-110.499,114.5-110.499h203.999v81.999h-192.999Z"/><path d="M2026,222.001h-231.999v120c0,60,35.499,79.999,71.499,79.999s71.5-20,71.5-79.999v-22.001h88.999v20.001c0,105.999-71,163.999-162.999,163.999-93.999,0-162.999-62-162.999-169.999V45.002L1794.001.002v140h231.999v81.999Z"/></g></svg></span>
       <span class="sub">MXL · RDMA Multiviewer</span>
     </div>
     <div class="status">
@@ -140,7 +156,20 @@
 
   <main>
     <div class="stage-wrap">
-      <div class="stage"><video id="v" muted autoplay playsinline></video></div>
+      <div class="players">
+        <div class="playercard">
+          <div class="pc-badge" id="origin-1"><span class="pc-mxl">MXL-1</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v1" class="pc-video" muted autoplay playsinline></video>
+        </div>
+        <div class="playercard">
+          <div class="pc-badge" id="origin-2"><span class="pc-mxl">MXL-2</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v2" class="pc-video" muted autoplay playsinline></video>
+        </div>
+        <div class="playercard">
+          <div class="pc-badge" id="origin-3"><span class="pc-mxl">MXL-3</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v3" class="pc-video" muted autoplay playsinline></video>
+        </div>
+      </div>
     </div>
 
     <aside class="panel">
@@ -258,8 +287,20 @@
       }).join('') || '<div class="gw">no gateway pods</div>';
     }
 
+    function updateOrigins(flows){
+      (flows||[]).forEach(function(f){
+        var b=document.getElementById('origin-'+f.n);
+        if(!b) return;
+        var node=(f.writer&&f.writer.node)?f.writer.node:'--';
+        b.querySelector('.pc-node').textContent=node;
+        var live=f.compositor&&f.compositor.live;
+        b.className='pc-badge'+(live?'':' down');
+      });
+    }
+
     function apply(data){
       var totMbps=0, totFps=0, live=0, flows=data.flows||[];
+      updateOrigins(flows);
       flows.forEach(function(f){
         var c=ensureCard(f.n), comp=f.compositor||{};
         c.name.textContent = f.label;
@@ -282,35 +323,40 @@
     }
     setInterval(poll, 1500); poll();
 
-    // ── HLS player (composite mosaic) ──
-    var lagEl=document.getElementById('hls-lag'), video=document.getElementById('v');
-    if (Hls.isSupported()) {
-      var frags={};
-      function rememberFrag(f){ if(f.programDateTime==null) return; frags[f.sn]={pdt:f.programDateTime,start:f.start,dur:f.duration}; var k=Object.keys(frags); if(k.length>8){k.sort(function(a,b){return +a-+b;}); delete frags[k[0]];} }
-      // Sit a few segments back from the live edge instead of riding it.
-      // Aggressive low-latency (liveSyncDurationCount:1 + lowLatencyMode)
-      // made hls.js overshoot and nudge currentTime backward on any jitter,
-      // re-showing an older frame for ~1 frame — the burned clock appeared to
-      // flap back a second. A 3-segment target with LL off plays monotonically
-      // at the cost of ~1-2s more latency.
-      var hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
-      hls.loadSource('/hls/composite/index.m3u8'); hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
-      hls.on(Hls.Events.LEVEL_LOADED, function(ev,data){ if(data.details&&data.details.fragments) data.details.fragments.forEach(rememberFrag); });
-      hls.on(Hls.Events.FRAG_LOADED, function(ev,data){ rememberFrag(data.frag); });
-      hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ hls.loadSource('/hls/composite/index.m3u8'); }, 5000); });
-      setInterval(function(){
-        if (video.readyState<2) return;
-        var ct=video.currentTime, match=null;
-        for (var k in frags){ var f=frags[k]; if(ct>=f.start && ct<f.start+f.dur){match=f;break;} }
-        if (!match) return;
-        var lag=Date.now()-(match.pdt+(ct-match.start)*1000);
-        if (lag<0||lag>60000) return;
-        lagEl.textContent=lag.toFixed(0);
-      }, 250);
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src='/hls/composite/index.m3u8'; video.addEventListener('loadedmetadata', function(){ video.play(); });
+    // ── Three per-flow HLS players (one mediamtx rendition each, no compositor) ──
+    var lagEl=document.getElementById('hls-lag');
+    function startPlayer(n){
+      var src='/hls/mxl-'+n+'/index.m3u8';
+      var video=document.getElementById('v'+n);
+      if (Hls.isSupported()) {
+        // Sit a few segments back from the live edge rather than riding it —
+        // aggressive low-latency makes hls.js nudge currentTime backward on
+        // jitter, re-showing a frame. LL off + a 3-segment target plays
+        // monotonically at the cost of ~1-2s latency.
+        var hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
+        hls.loadSource(src); hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
+        hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ hls.loadSource(src); }, 5000); });
+        if (n===1) {
+          var frags={};
+          function rememberFrag(f){ if(f.programDateTime==null) return; frags[f.sn]={pdt:f.programDateTime,start:f.start,dur:f.duration}; var k=Object.keys(frags); if(k.length>8){k.sort(function(a,b){return +a-+b;}); delete frags[k[0]];} }
+          hls.on(Hls.Events.LEVEL_LOADED, function(ev,data){ if(data.details&&data.details.fragments) data.details.fragments.forEach(rememberFrag); });
+          hls.on(Hls.Events.FRAG_LOADED, function(ev,data){ rememberFrag(data.frag); });
+          setInterval(function(){
+            if (video.readyState<2) return;
+            var ct=video.currentTime, match=null;
+            for (var k in frags){ var f=frags[k]; if(ct>=f.start && ct<f.start+f.dur){match=f;break;} }
+            if (!match) return;
+            var lag=Date.now()-(match.pdt+(ct-match.start)*1000);
+            if (lag<0||lag>60000) return;
+            lagEl.textContent=lag.toFixed(0);
+          }, 250);
+        }
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src=src; video.addEventListener('loadedmetadata', function(){ video.play(); });
+      }
     }
+    [1,2,3].forEach(startPlayer);
   </script>
 </body>
 </html>

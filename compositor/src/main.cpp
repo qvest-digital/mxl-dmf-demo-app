@@ -60,8 +60,10 @@ namespace
     // can report the RDMA-delivered throughput per tile.
     int g_cols = 1;
     int g_rows = 1;
-    constexpr int kOutW = 1280;
-    constexpr int kOutH = 720;
+    // Output canvas, set in main() once the grid is known. Native tiles (no
+    // downscale) => g_outW/g_outH = grid * source frame size.
+    int g_outW = 1280;
+    int g_outH = 720;
     std::int64_t g_grainBytes = 0;
 
     void on_signal(int) { g_exit.store(true, std::memory_order_relaxed); }
@@ -156,7 +158,7 @@ namespace
             std::ostringstream body;
             body << "{\"ts\":" << now
                  << ",\"provider\":\"verbs\""
-                 << ",\"outW\":" << kOutW << ",\"outH\":" << kOutH
+                 << ",\"outW\":" << g_outW << ",\"outH\":" << g_outH
                  << ",\"cols\":" << g_cols << ",\"rows\":" << g_rows
                  << ",\"grainBytes\":" << g_grainBytes
                  << ",\"flows\":[";
@@ -460,17 +462,41 @@ int main(int argc, char** argv)
     // rows = ceil(n / cols). 1->1x1, 2->2x1, 4->2x2, 9->3x3. Output stays
     // 1280x720; tiles are OUT/cols x OUT/rows so they tile it exactly when
     // the dimensions divide (4 flows -> 2x2 of 640x360).
-    constexpr int OUT_W = kOutW;
-    constexpr int OUT_H = kOutH;
-    g_cols = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(flowIds.size()))));
+    // Column count defaults to a near-square grid; MXL_GRID_COLS overrides it
+    // (MXL_GRID_COLS=1 stacks the tiles in a single vertical column).
+    {
+        std::string const colsEnv = env_or("MXL_GRID_COLS", "");
+        int const envCols = colsEnv.empty() ? 0 : std::atoi(colsEnv.c_str());
+        g_cols = envCols > 0
+            ? envCols
+            : static_cast<int>(std::ceil(std::sqrt(static_cast<double>(flowIds.size()))));
+    }
     if (g_cols < 1) g_cols = 1;
     g_rows = static_cast<int>((flowIds.size() + g_cols - 1) / g_cols);
     if (g_rows < 1) g_rows = 1;
-    int const TILE_W = OUT_W / g_cols;
-    int const TILE_H = OUT_H / g_rows;
+    // No downscale: each tile is the full source frame, the canvas is the
+    // grid times the source size. High-detail patterns (circular, checkers,
+    // zone-plate) alias into solid-colour garbage when a 1080p tile is
+    // squeezed to a few hundred px + v210 chroma packing; at native res they
+    // render clean. Cost is a large output (e.g. 6x 1080p -> 5760x2160) — the
+    // RDMA fabric carries it, but note an h264 decoder width cap of 4096 can
+    // stop browsers playing canvases wider than two 1080p columns.
+    int const TILE_W = g_frameW;
+    int const TILE_H = g_frameH;
+    g_outW = g_cols * TILE_W;
+    g_outH = g_rows * TILE_H;
+    int const OUT_W = g_outW;
+    int const OUT_H = g_outH;
+    // Scale the encoder bitrate with the canvas area so a 4K+ mosaic isn't
+    // starved at the 720p-tuned 6 Mbps. Linear in pixels off the 1280x720
+    // baseline; the fabric has the bandwidth.
+    long long const baseline = 1280LL * 720LL;
+    int bitrateKbps = static_cast<int>(
+        6000LL * static_cast<long long>(OUT_W) * OUT_H / baseline);
+    if (bitrateKbps < 6000) bitrateKbps = 6000;
     g_grainBytes = v210GrainBytes(g_frameW, g_frameH);
-    g_print("Grid: %zu flows -> %dx%d, tile %dx%d, grainBytes %lld\n",
-        flowIds.size(), g_cols, g_rows, TILE_W, TILE_H,
+    g_print("Grid: %zu flows -> %dx%d, tile %dx%d, out %dx%d, bitrate %dkbps, grainBytes %lld\n",
+        flowIds.size(), g_cols, g_rows, TILE_W, TILE_H, OUT_W, OUT_H, bitrateKbps,
         static_cast<long long>(g_grainBytes));
 
     // Build the pipeline as a single gst-launch-style description. compositor
@@ -518,7 +544,7 @@ int main(int argc, char** argv)
         //  - key-int-max=60: 2 s GOP at 30 fps — matches our HLS
         //    segment cadence so I-frames align with segment boundaries.
         "! x264enc speed-preset=faster tune=zerolatency "
-                  "bitrate=6000 vbv-buf-capacity=2000 "
+                  "bitrate=" + std::to_string(bitrateKbps) + " vbv-buf-capacity=2000 "
                   "bframes=2 key-int-max=60 "
         "! video/x-h264,profile=main "
         // RTSP carries codec frames over RTP, not MPEG-TS. h264parse with
@@ -541,8 +567,8 @@ int main(int argc, char** argv)
             // Per-tile leaky queue absorbs short scheduler jitter without
             // unbounded growth. 3 buffers ≈ 100 ms at 30 fps.
             "! queue leaky=downstream max-size-buffers=3 max-size-bytes=0 max-size-time=0 "
+            // No videoscale — tiles composite at native source resolution.
             "! videoconvert "
-            "! videoscale "
             "! video/x-raw,format=I420,width=" + std::to_string(TILE_W) +
             ",height=" + std::to_string(TILE_H) + " "
             "! comp.sink_" + std::to_string(i) + " ";

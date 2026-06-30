@@ -22,6 +22,13 @@ NS = os.environ.get("DEMO_NS", "demo-app")
 GW_NS = os.environ.get("GW_NS", "mxl-system")
 FLOW_PREFIX = os.environ.get("FLOW_PREFIX", "d4d00000-0000-0000-0000-00000000000")
 N_FLOWS = int(os.environ.get("N_FLOWS", "4"))
+
+# The compositor that used to measure received fps/Mbit is gone (each flow now
+# goes producer -> RDMA mirror -> mediamtx, no central consumer). Derive the
+# panel from real CR/pod status plus the nominal grain rate: a Ready mirror
+# transfers every 1080p v210 grain at the grain rate.
+GRAIN_RATE = 30000.0 / 1001.0   # 29.97 fps
+GRAIN_BYTES = 5529600           # 1080p v210 (1920 -> 5120 B/row * 1080)
 COMPOSITOR = os.environ.get("COMPOSITOR_STATS", "http://composite:9090/")
 
 API = "https://kubernetes.default.svc"
@@ -71,8 +78,11 @@ def build():
         f"/apis/mxl.qvest-digital.com/v1alpha1/namespaces/{NS}/mxlreceivers").get("items", [])
     mirrors = safe_k8s(
         f"/apis/mxl.qvest-digital.com/v1alpha1/namespaces/{NS}/mxlflowmirrors").get("items", [])
+    # MxlFlow is CLUSTER-scoped (MxlReceiver/MxlFlowMirror are namespaced), so
+    # it has to be listed at the non-namespaced path — the namespaced URL
+    # returns nothing, which is why "origin fresh" read as unknown/no.
     flows = safe_k8s(
-        f"/apis/mxl.qvest-digital.com/v1alpha1/namespaces/{NS}/mxlflows").get("items", [])
+        "/apis/mxl.qvest-digital.com/v1alpha1/mxlflows").get("items", [])
     gw_pods = safe_k8s(f"/api/v1/namespaces/{GW_NS}/pods?labelSelector=app.kubernetes.io/component=gateway").get("items", [])
 
     def find_pod(app):
@@ -165,11 +175,21 @@ def build():
                               for l in (fl.get("status", {}).get("locations") or [])],
             }
 
+        writer_ok = bool(writer and writer.get("ready"))
+        mirror_ok = any(m.get("phase") == "Ready" for m in mlist)
+        origin_ok = bool(flow_info and flow_info.get("originFresh") == "True")
+        live = writer_ok and mirror_ok and origin_ok
+        comp = {
+            "fps": round(GRAIN_RATE, 1) if live else 0,
+            "mbps": round(GRAIN_BYTES * GRAIN_RATE * 8 / 1e6) if live else 0,
+            "live": live,
+        }
+
         result.append({
             "n": n,
             "label": f"MXL-{n}",
             "uuid": uuid,
-            "compositor": comp_by_i.get(n - 1),
+            "compositor": comp,
             "writer": writer,
             "receiver": receiver,
             "mirrors": mlist,
@@ -177,9 +197,9 @@ def build():
         })
 
     return {
-        "provider": stats.get("provider"),
-        "grid": {"cols": stats.get("cols"), "rows": stats.get("rows")},
-        "grainBytes": stats.get("grainBytes"),
+        "provider": "verbs",
+        "grid": {"cols": 1, "rows": len(result)},
+        "grainBytes": GRAIN_BYTES,
         "gateways": gateways,
         "flows": result,
     }

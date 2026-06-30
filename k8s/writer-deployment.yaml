@@ -162,7 +162,7 @@ spec:
             - name: MXL_FLOW_ID
               value: d4d00000-0000-0000-0000-000000000002
             - name: MXL_FLOW_PATTERN
-              value: smpte75
+              value: ball
             - name: MXL_FLOW_OVERLAY
               value: MXL-2
           command: ["/bin/sh", "-c"]
@@ -253,7 +253,7 @@ spec:
             - name: MXL_FLOW_ID
               value: d4d00000-0000-0000-0000-000000000003
             - name: MXL_FLOW_PATTERN
-              value: smpte100
+              value: gamut
             - name: MXL_FLOW_OVERLAY
               value: MXL-3
           command: ["/bin/sh", "-c"]
@@ -270,97 +270,6 @@ spec:
                   -p "$MXL_FLOW_PATTERN" \
                   -t "$MXL_FLOW_OVERLAY" \
                   -g "mxl-multiviewer-3"
-          securityContext:
-            capabilities:
-              add: ["IPC_LOCK", "SYS_RESOURCE"]
-          resources:
-            requests:
-              cpu: "1"
-              memory: 2Gi
-            limits:
-              cpu: "2"
-              memory: 4Gi
-          volumeMounts:
-            - name: mxl-domain
-              mountPath: /run/mxl/domain
-      volumes:
-        - name: mxl-domain
-          hostPath:
-            path: /run/mxl/domain
-            type: DirectoryOrCreate
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: writer-mxl-4
-  labels:
-    app: writer-mxl-4
-    mxl.qvest-digital.com/role: producer
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: writer-mxl-4
-  template:
-    metadata:
-      labels:
-        app: writer-mxl-4
-        mxl-metrics: "true"
-        mxl.qvest-digital.com/role: producer
-    spec:
-      nodeSelector:
-        kubernetes.io/hostname: n04
-      tolerations:
-        - key: "vpc.amazonaws.com/efa"
-          operator: "Exists"
-          effect: "NoSchedule"
-      imagePullSecrets:
-        - name: demo-app-ghcr-pull
-      initContainers:
-        - name: prepare-domain
-          image: busybox:1.36
-          env:
-            - name: MXL_FLOW_ID
-              value: d4d00000-0000-0000-0000-000000000004
-          command:
-            - sh
-            - -c
-            - |
-              set -eu
-              chmod 0777 /run/mxl/domain
-              rm -rf "/run/mxl/domain/$MXL_FLOW_ID"*
-          securityContext:
-            runAsUser: 0
-          volumeMounts:
-            - name: mxl-domain
-              mountPath: /run/mxl/domain
-      containers:
-        - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:476db9b6d6df66a7991f687c86e8948620aefef7
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: MXL_FLOW_ID
-              value: d4d00000-0000-0000-0000-000000000004
-            - name: MXL_FLOW_PATTERN
-              value: gradient
-            - name: MXL_FLOW_OVERLAY
-              value: MXL-4
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -eu
-              FLOW_JSON=/tmp/flow-$MXL_FLOW_ID.json
-              sed "s|5fbec3b1-1b0f-417d-9059-8b94a47197ed|$MXL_FLOW_ID|g" \
-                  /home/mxl/v210_flow.json > "$FLOW_JSON"
-              echo "starting testsrc UUID=$MXL_FLOW_ID pattern=$MXL_FLOW_PATTERN overlay=$MXL_FLOW_OVERLAY"
-              exec /usr/bin/mxl-gst-testsrc \
-                  -d /run/mxl/domain \
-                  -v "$FLOW_JSON" \
-                  -p "$MXL_FLOW_PATTERN" \
-                  -t "$MXL_FLOW_OVERLAY" \
-                  -g "mxl-multiviewer-4"
           securityContext:
             capabilities:
               add: ["IPC_LOCK", "SYS_RESOURCE"]

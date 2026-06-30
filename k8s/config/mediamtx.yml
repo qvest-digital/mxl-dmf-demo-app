@@ -40,6 +40,12 @@ paths:
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
+    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
+    # keyframe to cut a 1s segment on. Without it, high-complexity content
+    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
+    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
+    # patterns (bars, ball) happened to emit IDRs often enough to work.
+    mxlH264IDRPeriod: 30
 
   mxl-2:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000002
@@ -47,13 +53,20 @@ paths:
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
+    mxlH264IDRPeriod: 30
 
   mxl-3:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000003
     sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
-    mxlH264Bitrate: 3000000
+    mxlH264Bitrate: 20000000
+    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
+    # keyframe to cut a 1s segment on. Without it, high-complexity content
+    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
+    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
+    # patterns (bars, ball) happened to emit IDRs often enough to work.
+    mxlH264IDRPeriod: 30
 
   mxl-4:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000004
@@ -61,6 +74,12 @@ paths:
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
+    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
+    # keyframe to cut a 1s segment on. Without it, high-complexity content
+    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
+    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
+    # patterns (bars, ball) happened to emit IDRs often enough to work.
+    mxlH264IDRPeriod: 30
 
   # Compositor sink. The composite pod (k8s/composite-deployment.yaml)
   # reads the four MXL flows zero-copy, builds the 2x2 mosaic with
