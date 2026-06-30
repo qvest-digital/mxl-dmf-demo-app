@@ -65,7 +65,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:476db9b6d6df66a7991f687c86e8948620aefef7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -156,7 +156,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:476db9b6d6df66a7991f687c86e8948620aefef7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -247,7 +247,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:476db9b6d6df66a7991f687c86e8948620aefef7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -343,7 +343,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:476db9b6d6df66a7991f687c86e8948620aefef7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
