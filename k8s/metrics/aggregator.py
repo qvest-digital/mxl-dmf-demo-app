@@ -28,7 +28,7 @@ N_FLOWS = int(os.environ.get("N_FLOWS", "4"))
 # panel from real CR/pod status plus the nominal grain rate: a Ready mirror
 # transfers every 1080p v210 grain at the grain rate.
 GRAIN_RATE = 30000.0 / 1001.0   # 29.97 fps
-GRAIN_BYTES = 5529600           # 1080p v210 (1920 -> 5120 B/row * 1080)
+GRAIN_BYTES = 2488320           # 720p v210 (1284 -> 3456 B/row * 720)
 COMPOSITOR = os.environ.get("COMPOSITOR_STATS", "http://composite:9090/")
 
 API = "https://kubernetes.default.svc"
