@@ -58,3 +58,18 @@ spec:
   podSelector:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
+---
+# DMF-231 live SRT ingest flow (produced by the mxl-dmf-demo-srt-ingest
+# bridge from a public SRT source). Consumed by mediamtx path `srt-camera`,
+# which serves it at /hls/srt-camera. Without this intent the mxl-k8s
+# intent-shim blocks mediamtx's open of the flow.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: srt-ingest-b2000000
+spec:
+  flowID: "b2000000-0000-0000-0000-000000000001"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer

@@ -94,3 +94,19 @@ paths:
   # flow c3000000 and RTSP-publishes the encoded result here. Played at
   # /hls/txdarwin-out/index.m3u8 (UI source toggle in config/index.html).
   txdarwin-out: {}
+
+  # DMF-231 live SRT ingest. The mxl-dmf-demo-srt-ingest bridge ingests a
+  # public SRT stream (srt-ingest.dmf.qvest-digital.com:9000) and writes MXL
+  # flow b2000000. mediamtx reads it zero-copy and serves /hls/srt-camera.
+  # Needs the matching MxlReceiver in mxl-receivers.yaml so the mxl-k8s
+  # intent-shim lets mediamtx open the flow. sourceOnDemand must be false:
+  # with hlsAlwaysRemux:true (above) mediamtx does NOT start an on-demand
+  # source from an HLS request, so an on-demand srt-camera never comes online
+  # (same reason mxl-stream-native is always-on). When the camera isn't
+  # streaming the MXL reader just logs "flow not found" and retries — harmless.
+  srt-camera:
+    source: mxl:///run/mxl/domain/b2000000-0000-0000-0000-000000000001
+    sourceOnDemand: false
+    mxlH264Preset: veryfast
+    mxlH264Profile: high
+    mxlH264Bitrate: 5000000
