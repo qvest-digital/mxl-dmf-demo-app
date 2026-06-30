@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
@@ -48,6 +54,17 @@ namespace
     // payload ~20x — less producer load and less fabric traffic.
     int g_frameW = 1920;
     int g_frameH = 1080;
+
+    // Mosaic geometry + per-grain payload size, set in main() once the flow
+    // count is known. Read by the /stats.json server thread so the frontend
+    // can report the RDMA-delivered throughput per tile.
+    int g_cols = 1;
+    int g_rows = 1;
+    // Output canvas, set in main() once the grid is known. Native tiles (no
+    // downscale) => g_outW/g_outH = grid * source frame size.
+    int g_outW = 1280;
+    int g_outH = 720;
+    std::int64_t g_grainBytes = 0;
 
     void on_signal(int) { g_exit.store(true, std::memory_order_relaxed); }
 
@@ -83,7 +100,101 @@ namespace
         std::thread thread;
         std::atomic<std::uint64_t> framesPushed{0};
         std::atomic<std::uint64_t> framesMissed{0};
+        // Delivered grain rate, refreshed by the STATS ticker every 5s.
+        // This is the rate at which RDMA-mirrored grains land in the
+        // consumer's domain — the per-flow RDMA delivery quality.
+        std::atomic<double> fps{0.0};
     };
+
+    // v210 packs 6 pixels into 16 bytes; the row stride is rounded up to a
+    // 48-pixel / 128-byte boundary. Per-grain payload = stride * height.
+    std::int64_t v210GrainBytes(int w, int h)
+    {
+        std::int64_t stride = static_cast<std::int64_t>((w + 47) / 48) * 128;
+        return stride * h;
+    }
+
+    // Minimal single-threaded HTTP/1.0 responder for /stats.json. No deps —
+    // the compositor already links gst/glib but a raw socket keeps the
+    // surface tiny. Serves the live per-flow RDMA metrics the qvest
+    // multiviewer frontend polls. CORS-open so the page can fetch it from
+    // the ingress origin.
+    void stats_http_server(std::vector<FlowWorker>* workers, int port)
+    {
+        int srv = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (srv < 0) { g_printerr("stats: socket() failed\n"); return; }
+        int one = 1;
+        ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr.sin_port = htons(static_cast<std::uint16_t>(port));
+        if (::bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+        {
+            g_printerr("stats: bind(:%d) failed\n", port);
+            ::close(srv);
+            return;
+        }
+        if (::listen(srv, 16) < 0) { g_printerr("stats: listen() failed\n"); ::close(srv); return; }
+        // Bound accept() so the loop can observe g_exit and shut down even
+        // when no client is connecting.
+        timeval tv{};
+        tv.tv_sec = 1;
+        ::setsockopt(srv, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        g_print("stats: serving /stats.json on :%d\n", port);
+
+        while (!g_exit.load(std::memory_order_relaxed))
+        {
+            int cli = ::accept(srv, nullptr, nullptr);
+            if (cli < 0) { if (g_exit.load(std::memory_order_relaxed)) break; continue; }
+
+            // Drain (and ignore) the request line/headers.
+            char buf[2048];
+            ::recv(cli, buf, sizeof(buf), 0);
+
+            auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+            std::ostringstream body;
+            body << "{\"ts\":" << now
+                 << ",\"provider\":\"verbs\""
+                 << ",\"outW\":" << g_outW << ",\"outH\":" << g_outH
+                 << ",\"cols\":" << g_cols << ",\"rows\":" << g_rows
+                 << ",\"grainBytes\":" << g_grainBytes
+                 << ",\"flows\":[";
+            for (std::size_t i = 0; i < workers->size(); ++i)
+            {
+                auto& w = (*workers)[i];
+                double fps = w.fps.load(std::memory_order_relaxed);
+                double mbps = fps * static_cast<double>(g_grainBytes) * 8.0 / 1.0e6;
+                if (i) body << ',';
+                body << "{\"i\":" << i
+                     << ",\"flowId\":\"" << w.flowId << "\""
+                     << ",\"label\":\"MXL-" << (i + 1) << "\""
+                     << ",\"fps\":" << fps
+                     << ",\"pushed\":" << w.framesPushed.load()
+                     << ",\"missed\":" << w.framesMissed.load()
+                     << ",\"mbps\":" << mbps
+                     << ",\"live\":" << (fps > 1.0 ? "true" : "false")
+                     << "}";
+            }
+            body << "]}";
+            std::string json = body.str();
+
+            std::ostringstream resp;
+            resp << "HTTP/1.0 200 OK\r\n"
+                 << "Content-Type: application/json\r\n"
+                 << "Access-Control-Allow-Origin: *\r\n"
+                 << "Cache-Control: no-store\r\n"
+                 << "Content-Length: " << json.size() << "\r\n"
+                 << "Connection: close\r\n\r\n"
+                 << json;
+            std::string out = resp.str();
+            ::send(cli, out.data(), out.size(), 0);
+            ::close(cli);
+        }
+        ::close(srv);
+    }
 
     void worker_loop(FlowWorker* w)
     {
@@ -123,6 +234,25 @@ namespace
         ::g_object_set(G_OBJECT(w->appsrc), "caps", caps, nullptr);
         ::gst_caps_unref(caps);
 
+        // Staleness watchdog. A mirror can go silent — writer churn, mirror
+        // re-form, a gateway roll leaving a half-open RDMA endpoint — while its
+        // ring stays readable: the head index simply stops advancing and reads
+        // keep returning the same stale grain forever, with no error to key
+        // off. Track the head; if it freezes for kStallReopen ticks (~2s at the
+        // grain rate), drop the reader so the guard at the loop top re-attaches
+        // it to the live ring. This is what insulates the compositor from
+        // upstream churn without an external restart.
+        std::uint64_t lastHead = 0;
+        int stallTicks = 0;
+        constexpr int kStallReopen = 60;
+        // Highest grain index already pushed downstream. The scan below picks
+        // the freshest COMPLETE grain, but when head-kLagGrains is briefly
+        // mid-write it falls back to an older grain — which, versus the
+        // previous tick, would rewind the burned-in clock by a frame. Never
+        // emit a grain older than the last one shown: hold the last frame
+        // instead. Reset on reopen (a recreated flow restarts its indices).
+        std::int64_t lastShownIndex = -1;
+
         auto nextTick = clock::now();
         auto pace = [&]() {
             nextTick += period;
@@ -133,53 +263,131 @@ namespace
 
         while (!g_exit.load(std::memory_order_relaxed))
         {
+            // Re-open a reader dropped by the watchdog or the FLOW_INVALID path
+            // below, once the flow is published again. Keeps reopen logic in one
+            // place so both stalls and hard tear-downs recover identically.
+            if (w->reader == nullptr)
+            {
+                bool active = false;
+                if (::mxlIsFlowActive(w->instance, w->flowId.c_str(), &active) == MXL_STATUS_OK && active &&
+                    ::mxlCreateFlowReader(w->instance, w->flowId.c_str(), "", &w->reader) == MXL_STATUS_OK)
+                {
+                    ::mxlFlowReaderGetConfigInfo(w->reader, &w->config);
+                    lastHead = 0;
+                    stallTicks = 0;
+                    lastShownIndex = -1;
+                    g_print("[%zu] %s reader re-opened\n", w->index, w->flowId.c_str());
+                }
+                else
+                {
+                    pace();  // flow not back yet; hold cadence and retry
+                    continue;
+                }
+            }
+
             // Resolve the freshest finished grain from the live head each tick,
             // rather than advancing a cursor — decouples our cadence from the
             // writer's (over)production rate and self-heals index jumps.
             ::mxlFlowRuntimeInfo rt{};
             bool haveIndex = ::mxlFlowReaderGetRuntimeInfo(w->reader, &rt) == MXL_STATUS_OK &&
                 static_cast<std::int64_t>(rt.headIndex) > kLagGrains;
-            std::uint64_t requestedIndex =
-                haveIndex ? rt.headIndex - static_cast<std::uint64_t>(kLagGrains) : 0;
 
+            // Head not advancing? Count consecutive frozen ticks and drop the
+            // reader once it's clearly wedged; a healthy flow resets the count.
+            if (haveIndex && rt.headIndex == lastHead)
+            {
+                if (++stallTicks >= kStallReopen)
+                {
+                    g_print("[%zu] %s head frozen %d ticks — reopening reader\n",
+                        w->index, w->flowId.c_str(), stallTicks);
+                    ::mxlReleaseFlowReader(w->instance, w->reader);
+                    w->reader = nullptr;
+                    stallTicks = 0;
+                    pace();
+                    continue;
+                }
+            }
+            else if (haveIndex)
+            {
+                lastHead = rt.headIndex;
+                stallTicks = 0;
+            }
+
+            // Take the freshest grain, scanning from the live head downward,
+            // and key everything off the grain's OWN index (info.index), not
+            // the index we asked for. info.index is "the epoch grain index the
+            // ring-buffer slot currently holds" — so it exposes a STALE read:
+            // mxl-gst-testsrc constantly backfills the grain grid, and a
+            // skipped slot still holds the frame from one ring-depth ago. If we
+            // probe such a slot, GetGrain returns it but info.index is the OLD
+            // index, not what we requested. The previous code trusted the
+            // requested index for ordering, so it would show that old frame
+            // under a "newer" label and the burned clock flapped back. By
+            // ordering on info.index instead (and holding when it isn't newer
+            // than the last shown), the actual CONTENT advances monotonically —
+            // which is exactly the invariant the gateway's sequential transfer
+            // gives the cross-node mirrors. Accept the INVALID flag (every
+            // local-ring grain carries it); only skip a half-written grain.
+            constexpr int kScanDepth = 5;
             ::mxlGrainInfo info{};
             std::uint8_t* payload = nullptr;
-            // The requested grain is already finished, so this returns at once;
-            // the 100 ms cap only covers a flow that is briefly between writes.
-            auto ret = haveIndex
-                ? ::mxlFlowReaderGetGrain(w->reader, requestedIndex, 100'000'000ULL, &info, &payload)
-                : MXL_ERR_FLOW_INVALID;
-
-            if (ret != MXL_STATUS_OK)
+            bool got = false;
+            bool readerDead = false;
+            std::int64_t chosenIdx = -1;
+            int lastRet = 0;
+            ::mxlGrainInfo lastInfo{};
+            for (int back = 0; haveIndex && back < kScanDepth; ++back)
             {
-                w->framesMissed.fetch_add(1, std::memory_order_relaxed);
-                if (ret == MXL_ERR_FLOW_INVALID && haveIndex)
+                std::int64_t idx = static_cast<std::int64_t>(rt.headIndex) - back;
+                if (idx < 0) break;
+                auto ret = ::mxlFlowReaderGetGrain(w->reader,
+                    static_cast<std::uint64_t>(idx), 100'000'000ULL, &info, &payload);
+                lastRet = static_cast<int>(ret);
+                if (ret != MXL_STATUS_OK)
                 {
-                    // Flow was torn down / recreated (writer or full txDarwin
-                    // restart) and the old reader handle is dead. Once the flow
-                    // is back, release the stale reader and open a fresh one.
-                    bool active = false;
-                    if (::mxlIsFlowActive(w->instance, w->flowId.c_str(), &active) == MXL_STATUS_OK && active)
-                    {
-                        ::mxlReleaseFlowReader(w->instance, w->reader);
-                        w->reader = nullptr;
-                        if (::mxlCreateFlowReader(w->instance, w->flowId.c_str(), "", &w->reader) == MXL_STATUS_OK)
-                        {
-                            ::mxlFlowReaderGetConfigInfo(w->reader, &w->config);
-                            g_print("[%zu] %s reader re-opened after FLOW_INVALID\n",
-                                w->index, w->flowId.c_str());
-                        }
-                    }
+                    if (ret == MXL_ERR_FLOW_INVALID) { readerDead = true; break; }
+                    continue;  // aged out / not ready — try one below
+                }
+                lastInfo = info;
+                if (info.validSlices < info.totalSlices) continue;  // mid-write, try older
+                chosenIdx = static_cast<std::int64_t>(info.index);  // the slot's ACTUAL content index
+                got = true;
+                break;
+            }
+
+            if (!got)
+            {
+                auto missed = w->framesMissed.fetch_add(1, std::memory_order_relaxed) + 1;
+                if (missed % 150 == 1)  // ~once / 5s: diagnose why nothing is readable
+                    g_print("[%zu] %s no complete grain: head=%llu lastRet=%d "
+                            "valid=%u total=%u flags=0x%x size=%zu\n",
+                        w->index, w->flowId.c_str(),
+                        static_cast<unsigned long long>(rt.headIndex), lastRet,
+                        lastInfo.validSlices, lastInfo.totalSlices,
+                        static_cast<unsigned>(lastInfo.flags),
+                        static_cast<std::size_t>(lastInfo.grainSize));
+                if (readerDead && w->reader != nullptr)
+                {
+                    // Flow torn down / recreated and the handle is dead. Drop
+                    // it; the reopen guard at the loop top re-attaches.
+                    ::mxlReleaseFlowReader(w->instance, w->reader);
+                    w->reader = nullptr;
                 }
                 pace();  // hold cadence even while a flow is down
                 continue;
             }
 
-            if (info.validSlices < info.totalSlices || (info.flags & MXL_GRAIN_FLAG_INVALID) != 0)
+            // Never rewind the CONTENT. chosenIdx is the grain's own index
+            // (info.index), so a stale slot — one whose index is older than
+            // what we already showed — is held here instead of displayed,
+            // keeping the burned-in clock monotonic. Clean mirror flows always
+            // have info.index == head, so they advance every tick.
+            if (chosenIdx <= lastShownIndex)
             {
                 pace();
                 continue;
             }
+            lastShownIndex = chosenIdx;
 
             // Zero-copy would mean handing the payload pointer to gst with a
             // custom GstAllocator that knows libmxl's ring buffer lifetime;
@@ -244,18 +452,52 @@ int main(int argc, char** argv)
         g_printerr("MXL_FLOW_IDS empty — set it to a space-separated list of UUIDs\n");
         return 2;
     }
-    if (flowIds.size() > 9)
+    if (flowIds.size() > 16)
     {
-        g_printerr("Only the first 9 flows fit a 3x3 grid; ignoring overflow\n");
-        flowIds.resize(9);
+        g_printerr("Only the first 16 flows fit the grid; ignoring overflow\n");
+        flowIds.resize(16);
     }
 
-    // Output is 1280x720 with 3x3 of 426x238 tiles. 1280/3 != 426*3 exactly
-    // (1278 vs 1280) — a 1-pixel right/bottom black band is fine for a demo.
-    constexpr int OUT_W = 1280;
-    constexpr int OUT_H = 720;
-    constexpr int TILE_W = 426;
-    constexpr int TILE_H = 238;
+    // Square-ish grid sized to the flow count: cols = ceil(sqrt(n)),
+    // rows = ceil(n / cols). 1->1x1, 2->2x1, 4->2x2, 9->3x3. Output stays
+    // 1280x720; tiles are OUT/cols x OUT/rows so they tile it exactly when
+    // the dimensions divide (4 flows -> 2x2 of 640x360).
+    // Column count defaults to a near-square grid; MXL_GRID_COLS overrides it
+    // (MXL_GRID_COLS=1 stacks the tiles in a single vertical column).
+    {
+        std::string const colsEnv = env_or("MXL_GRID_COLS", "");
+        int const envCols = colsEnv.empty() ? 0 : std::atoi(colsEnv.c_str());
+        g_cols = envCols > 0
+            ? envCols
+            : static_cast<int>(std::ceil(std::sqrt(static_cast<double>(flowIds.size()))));
+    }
+    if (g_cols < 1) g_cols = 1;
+    g_rows = static_cast<int>((flowIds.size() + g_cols - 1) / g_cols);
+    if (g_rows < 1) g_rows = 1;
+    // No downscale: each tile is the full source frame, the canvas is the
+    // grid times the source size. High-detail patterns (circular, checkers,
+    // zone-plate) alias into solid-colour garbage when a 1080p tile is
+    // squeezed to a few hundred px + v210 chroma packing; at native res they
+    // render clean. Cost is a large output (e.g. 6x 1080p -> 5760x2160) — the
+    // RDMA fabric carries it, but note an h264 decoder width cap of 4096 can
+    // stop browsers playing canvases wider than two 1080p columns.
+    int const TILE_W = g_frameW;
+    int const TILE_H = g_frameH;
+    g_outW = g_cols * TILE_W;
+    g_outH = g_rows * TILE_H;
+    int const OUT_W = g_outW;
+    int const OUT_H = g_outH;
+    // Scale the encoder bitrate with the canvas area so a 4K+ mosaic isn't
+    // starved at the 720p-tuned 6 Mbps. Linear in pixels off the 1280x720
+    // baseline; the fabric has the bandwidth.
+    long long const baseline = 1280LL * 720LL;
+    int bitrateKbps = static_cast<int>(
+        6000LL * static_cast<long long>(OUT_W) * OUT_H / baseline);
+    if (bitrateKbps < 6000) bitrateKbps = 6000;
+    g_grainBytes = v210GrainBytes(g_frameW, g_frameH);
+    g_print("Grid: %zu flows -> %dx%d, tile %dx%d, out %dx%d, bitrate %dkbps, grainBytes %lld\n",
+        flowIds.size(), g_cols, g_rows, TILE_W, TILE_H, OUT_W, OUT_H, bitrateKbps,
+        static_cast<long long>(g_grainBytes));
 
     // Build the pipeline as a single gst-launch-style description. compositor
     // has per-sink xpos/ypos/width/height set via pad properties; we write
@@ -270,8 +512,8 @@ int main(int argc, char** argv)
         "compositor name=comp background=black ";
     for (std::size_t i = 0; i < flowIds.size(); ++i)
     {
-        int row = static_cast<int>(i) / 3;
-        int col = static_cast<int>(i) % 3;
+        int row = static_cast<int>(i) / g_cols;
+        int col = static_cast<int>(i) % g_cols;
         pipelineDesc += "sink_" + std::to_string(i) +
             "::xpos=" + std::to_string(col * TILE_W) +
             " sink_" + std::to_string(i) +
@@ -302,7 +544,7 @@ int main(int argc, char** argv)
         //  - key-int-max=60: 2 s GOP at 30 fps — matches our HLS
         //    segment cadence so I-frames align with segment boundaries.
         "! x264enc speed-preset=faster tune=zerolatency "
-                  "bitrate=6000 vbv-buf-capacity=2000 "
+                  "bitrate=" + std::to_string(bitrateKbps) + " vbv-buf-capacity=2000 "
                   "bframes=2 key-int-max=60 "
         "! video/x-h264,profile=main "
         // RTSP carries codec frames over RTP, not MPEG-TS. h264parse with
@@ -325,8 +567,8 @@ int main(int argc, char** argv)
             // Per-tile leaky queue absorbs short scheduler jitter without
             // unbounded growth. 3 buffers ≈ 100 ms at 30 fps.
             "! queue leaky=downstream max-size-buffers=3 max-size-bytes=0 max-size-time=0 "
+            // No videoscale — tiles composite at native source resolution.
             "! videoconvert "
-            "! videoscale "
             "! video/x-raw,format=I420,width=" + std::to_string(TILE_W) +
             ",height=" + std::to_string(TILE_H) + " "
             "! comp.sink_" + std::to_string(i) + " ";
@@ -412,22 +654,30 @@ int main(int argc, char** argv)
     // Without this it's impossible to tell whether the pipeline is silent
     // because workers aren't getting grains, or because grains are being
     // pushed but dropped downstream.
-    std::thread stats{[&workers]() {
+    constexpr int kStatsIntervalS = 5;
+    std::thread stats{[&workers, kStatsIntervalS]() {
         std::uint64_t last[16] = {0};
         while (!g_exit.load(std::memory_order_relaxed))
         {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::seconds(kStatsIntervalS));
             std::string line = "STATS";
             for (std::size_t i = 0; i < workers.size(); ++i)
             {
                 auto cur = workers[i].framesPushed.load();
                 auto delta = cur - last[i];
                 last[i] = cur;
+                workers[i].fps.store(static_cast<double>(delta) / kStatsIntervalS,
+                    std::memory_order_relaxed);
                 line += " [" + std::to_string(i) + "]=" + std::to_string(delta) + "fps";
             }
             g_print("%s\n", line.c_str());
         }
     }};
+
+    // RDMA-delivery metrics endpoint for the multiviewer frontend.
+    int statsPort = std::atoi(env_or("MXL_STATS_PORT", "9090").c_str());
+    if (statsPort <= 0) statsPort = 9090;
+    std::thread statsHttp{stats_http_server, &workers, statsPort};
 
     // Block on bus until ERROR / EOS / SIGTERM.
     auto* bus = ::gst_element_get_bus(pipeline);
@@ -471,6 +721,7 @@ int main(int argc, char** argv)
 
     g_print("Shutting down workers...\n");
     if (stats.joinable()) stats.join();
+    if (statsHttp.joinable()) statsHttp.join();
     for (auto& w : workers)
     {
         if (w.thread.joinable()) w.thread.join();
