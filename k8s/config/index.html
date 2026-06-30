@@ -169,6 +169,10 @@
           <div class="pc-badge" id="origin-3"><span class="pc-mxl">MXL-3</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
           <video id="v3" class="pc-video" muted autoplay playsinline></video>
         </div>
+        <div class="playercard">
+          <div class="pc-badge" id="origin-4"><span class="pc-mxl">MXL-4</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v4" class="pc-video" muted autoplay playsinline></video>
+        </div>
       </div>
     </div>
 
@@ -356,7 +360,7 @@
         video.src=src; video.addEventListener('loadedmetadata', function(){ video.play(); });
       }
     }
-    [1,2,3].forEach(startPlayer);
+    [1,2,3,4].forEach(startPlayer);
   </script>
 </body>
 </html>

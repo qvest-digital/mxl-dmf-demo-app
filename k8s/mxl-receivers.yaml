@@ -44,6 +44,20 @@ spec:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
 ---
+# 4th flow — produced locally on n04 (writer-mxl-4), read by mediamtx on the
+# same node. The receiver still authorizes mediamtx to open the flow via the
+# intent-shim even though there's no cross-node mirror.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: mxl-multiviewer-4
+spec:
+  flowID: "d4d00000-0000-0000-0000-000000000004"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
 # txDarwin output flow (produced by txdarwin-mxl-pipeline in
 # mxl-dmf-txdarwin-flux). Consumed by txdarwin-output-viewer, which
 # RTSP-publishes it to mediamtx path `txdarwin-out`. Orthogonal to the

@@ -36,7 +36,7 @@ paths:
   # (/hls/composite) and never touches these.
   mxl-1:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000001
-    sourceOnDemand: true
+    sourceOnDemand: false
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
@@ -49,7 +49,7 @@ paths:
 
   mxl-2:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000002
-    sourceOnDemand: true
+    sourceOnDemand: false
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
@@ -57,10 +57,10 @@ paths:
 
   mxl-3:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000003
-    sourceOnDemand: true
+    sourceOnDemand: false
     mxlH264Preset: ultrafast
     mxlH264Profile: high
-    mxlH264Bitrate: 20000000
+    mxlH264Bitrate: 3000000
     # Force a 1s IDR/keyframe period so the HLS segmenter always has a
     # keyframe to cut a 1s segment on. Without it, high-complexity content
     # (the snow pattern: incompressible full-frame noise) defers IDRs and the
@@ -70,7 +70,7 @@ paths:
 
   mxl-4:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000004
-    sourceOnDemand: true
+    sourceOnDemand: false
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
