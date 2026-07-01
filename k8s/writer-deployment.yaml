@@ -79,7 +79,7 @@ spec:
           # MXL-1 runs the ORIGINAL v210-overlay writer (1080p) on purpose:
           # a side-by-side reference vs the I420/720p tiles (MXL-2..4). The
           # v210 overlay blend is the slow path — this tile is meant to look it.
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -185,7 +185,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -289,7 +289,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -398,7 +398,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
