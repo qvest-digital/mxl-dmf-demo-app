@@ -87,6 +87,13 @@ spec:
             # frontend polls (proxied by the caddy sidecar at /stats.json).
             - name: MXL_STATS_PORT
               value: "9090"
+            # Grain geometry. The compositor defaults to 1920x1080; the flows
+            # are 1296x720, so without this it wraps each v210 grain with the
+            # wrong size -> "invalid video buffer" -> empty green tiles.
+            - name: MXL_FRAME_WIDTH
+              value: "1296"
+            - name: MXL_FRAME_HEIGHT
+              value: "720"
             # Shim must be loaded before libmxl so the
             # mxlCreateFlowReader entry point gets intercepted.
             - name: LD_PRELOAD
