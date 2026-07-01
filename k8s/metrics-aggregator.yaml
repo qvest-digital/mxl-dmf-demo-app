@@ -63,9 +63,15 @@ roleRef:
   kind: ClusterRole
   name: demo-metrics-podread
 subjects:
+  # Bind both namespaces: SA is demo-metrics/demo-app on sc, demo-metrics/default
+  # on EKS (Flux targetNamespace). ClusterRoleBinding subject NS isn't rewritten,
+  # so without the default entry the EKS SA 403s on mxlflows -> red dots.
   - kind: ServiceAccount
     name: demo-metrics
     namespace: demo-app
+  - kind: ServiceAccount
+    name: demo-metrics
+    namespace: default
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -89,8 +95,8 @@ spec:
           image: python:3.12-slim
           command: ["python", "/app/aggregator.py"]
           env:
-            - name: DEMO_NS
-              value: demo-app
+            # DEMO_NS unset on purpose: aggregator reads its own pod namespace
+            # (demo-app on sc, default on EKS). Hardcoding broke EKS queries.
             - name: GW_NS
               value: mxl-system
             - name: FLOW_PREFIX
