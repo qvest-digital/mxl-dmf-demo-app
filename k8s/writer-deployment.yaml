@@ -76,7 +76,10 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
+          # MXL-1 runs the ORIGINAL v210-overlay writer (1080p) on purpose:
+          # a side-by-side reference vs the I420/720p tiles (MXL-2..4). The
+          # v210 overlay blend is the slow path — this tile is meant to look it.
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:476db9b6d6df66a7991f687c86e8948620aefef7
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
