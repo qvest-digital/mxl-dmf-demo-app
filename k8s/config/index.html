@@ -329,11 +329,12 @@
       var src='/hls/mxl-'+n+'/index.m3u8';
       var video=document.getElementById('v'+n);
       if (Hls.isSupported()) {
-        // Sit a few segments back from the live edge rather than riding it —
+        // Sit a couple segments back from the live edge rather than riding it —
         // aggressive low-latency makes hls.js nudge currentTime backward on
-        // jitter, re-showing a frame. LL off + a 3-segment target plays
-        // monotonically at the cost of ~1-2s latency.
-        var hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
+        // jitter, re-showing a frame. LL stays off; a 2-segment target trims
+        // ~1s of latency vs 3 while still playing monotonically. (For true
+        // sub-second latency use the WebRTC path, not HLS.)
+        var hls=new Hls({liveSyncDurationCount:2,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
         hls.loadSource(src); hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
         hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ hls.loadSource(src); }, 5000); });
