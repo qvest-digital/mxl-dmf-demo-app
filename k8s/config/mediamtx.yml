@@ -8,7 +8,10 @@ webrtcAddress: :8889
 # RTP directly. NOTE: 10.20.53.107 is the sc/MetalLB (internal) IP; a public
 # cluster needs its own external IP here.
 webrtcLocalUDPAddress: :8189
-webrtcAdditionalHosts: [10.20.53.107]
+# Both clusters' ICE hosts. mediamtx advertises both as candidates; each
+# browser reaches only its own (sc client -> 10.20.53.107 internal; EKS client
+# -> the public NLB behind webrtc.demo.dmf) and ICE ignores the unreachable one.
+webrtcAdditionalHosts: [10.20.53.107, webrtc.demo.dmf.qvest-digital.com]
 webrtcICEServers2:
   - url: stun:stun.l.google.com:19302
 
