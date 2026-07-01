@@ -140,6 +140,29 @@
   .gw .node { font-weight: 800; font-size: 14px; }
 
   footer { padding: 12px 28px; border-top: 1px solid #eee; font-size: 12px; opacity: .55; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 8px; padding: 14px 28px 0; }
+  .tab {
+    border: none; background: transparent; font-family: inherit; cursor: pointer;
+    font-weight: 700; font-size: 14px; color: var(--qv-ink); opacity: .5;
+    padding: 8px 18px; border-radius: var(--qv-radius-pill);
+  }
+  .tab:hover { opacity: .85; }
+  .tab.active { opacity: 1; background: var(--qv-ink); color: #fff; }
+  .pane { display: none; }
+  .pane.active { display: block; }
+  /* txDarwin / SRT switcher */
+  .tx-main { padding: 20px 28px; display: flex; flex-direction: column; gap: 14px; max-width: 1180px; }
+  .tx-toggle { display: flex; gap: 8px; }
+  .txbtn {
+    border-radius: var(--qv-radius-pill); border: 2px solid var(--qv-orange);
+    color: var(--qv-orange); background: transparent; font-family: inherit;
+    font-weight: 700; font-size: 13px; padding: .45em 1.2em; cursor: pointer;
+  }
+  .txbtn:hover { background: rgba(240,80,18,.08); }
+  .txbtn.active { background: var(--qv-orange); color: #fff; }
+  .tx-video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--qv-radius); display: block; }
 </style>
 </head>
 <body>
@@ -154,6 +177,12 @@
     </div>
   </header>
 
+  <nav class="tabs">
+    <button class="tab active" data-tab="mv">Multiviewer</button>
+    <button class="tab" data-tab="tx">txDarwin / SRT</button>
+  </nav>
+
+  <div id="pane-mv" class="pane active">
   <main>
     <div class="stage-wrap">
       <div class="players">
@@ -191,6 +220,17 @@
       </div>
     </aside>
   </main>
+  </div>
+
+  <div id="pane-tx" class="pane">
+    <main class="tx-main">
+      <div class="tx-toggle">
+        <button class="txbtn active" data-path="txdarwin-out">txDarwin Out</button>
+        <button class="txbtn" data-path="srt-camera">SRT Camera</button>
+      </div>
+      <video id="txv" class="tx-video" muted autoplay playsinline></video>
+    </main>
+  </div>
 
   <footer></footer>
 
@@ -357,6 +397,47 @@
       }
     }
     [1,2,3,4].forEach(startPlayer);
+
+    // ── Tabs + txDarwin/SRT switcher: one player, source-switchable between the
+    // txDarwin output and the SRT-camera ingest. Lazy-started on first tab open
+    // so it doesn't pull those mediamtx encoders until someone looks. ──
+    (function(){
+      var txv=document.getElementById('txv');
+      var txPath='txdarwin-out', txHls=null, txStarted=false;
+      function txLoad(){
+        var src='/hls/'+txPath+'/index.m3u8';
+        if (Hls.isSupported()) {
+          if (!txHls) {
+            txHls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
+            txHls.attachMedia(txv);
+            txHls.on(Hls.Events.MANIFEST_PARSED, function(){ txv.play(); });
+            txHls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ txHls.loadSource('/hls/'+txPath+'/index.m3u8'); }, 5000); });
+          }
+          txHls.loadSource(src);
+        } else if (txv.canPlayType('application/vnd.apple.mpegurl')) {
+          txv.src=src; txv.addEventListener('loadedmetadata', function(){ txv.play(); });
+        }
+      }
+      document.querySelectorAll('.txbtn').forEach(function(b){
+        b.addEventListener('click', function(){
+          if (b.getAttribute('data-path')===txPath) return;
+          txPath=b.getAttribute('data-path');
+          document.querySelectorAll('.txbtn').forEach(function(x){ x.classList.remove('active'); });
+          b.classList.add('active');
+          txLoad();
+        });
+      });
+      document.querySelectorAll('.tab').forEach(function(t){
+        t.addEventListener('click', function(){
+          var id=t.getAttribute('data-tab');
+          document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('active'); });
+          t.classList.add('active');
+          document.getElementById('pane-mv').classList.toggle('active', id==='mv');
+          document.getElementById('pane-tx').classList.toggle('active', id==='tx');
+          if (id==='tx' && !txStarted){ txStarted=true; txLoad(); }
+        });
+      });
+    })();
   </script>
 </body>
 </html>
