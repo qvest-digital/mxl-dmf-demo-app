@@ -14,7 +14,15 @@ metadata:
   labels:
     app: mediamtx
   annotations:
+    # sc / MetalLB: pin the internal IP.
     metallb.universe.tf/loadBalancerIPs: "10.20.53.107"
+    # EKS: provision an internet-facing UDP NLB (MetalLB ignores these). A
+    # stable DNS name via external-dns (which on sc filters run.dmf, so it
+    # ignores this demo.dmf name) survives the nightly cluster rebuild even
+    # though the NLB IP changes.
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    external-dns.alpha.kubernetes.io/hostname: webrtc.demo.dmf.qvest-digital.com
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

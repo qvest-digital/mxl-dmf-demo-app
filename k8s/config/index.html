@@ -168,6 +168,23 @@
   .txbtn:hover { background: rgba(240,80,18,.08); }
   .txbtn.active { background: var(--qv-orange); color: #fff; }
   .tx-video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--qv-radius); display: block; }
+
+  /* Loading overlay: shown over each video until it starts playing (WebRTC ICE
+     handshake takes a moment; on fallback, HLS buffering does too). */
+  .vwrap { position: relative; min-width: 0; }
+  .vloader {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: rgba(11,9,13,.6); color: #fff; border-radius: var(--qv-radius);
+    font-size: 13px; font-weight: 700; letter-spacing: .03em;
+  }
+  .vloader.hide { display: none; }
+  .vloader .spin {
+    width: 40px; height: 40px; border: 3px solid rgba(255,255,255,.22);
+    border-top-color: var(--qv-lime); border-radius: 50%;
+    animation: vspin .8s linear infinite;
+  }
+  @keyframes vspin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -448,6 +465,23 @@
         video.src=src; video.addEventListener('loadedmetadata', function(){ video.play(); });
       }
     }
+
+    // Loading overlay per video: wrap it so an absolute spinner sits over it,
+    // hidden once the video actually plays and re-shown if its source resets
+    // (e.g. the txDarwin/SRT switch or a WebRTC reconnect).
+    function setupLoaders(){
+      document.querySelectorAll('video').forEach(function(v){
+        if (v.parentElement.classList.contains('vwrap')) return;
+        var w=document.createElement('div'); w.className='vwrap';
+        v.parentNode.insertBefore(w, v); w.appendChild(v);
+        var ld=document.createElement('div'); ld.className='vloader';
+        ld.innerHTML='<div class="spin"></div><span>Verbinde Stream…</span>';
+        w.appendChild(ld);
+        v.addEventListener('playing', function(){ ld.classList.add('hide'); });
+        v.addEventListener('emptied', function(){ ld.classList.remove('hide'); });
+      });
+    }
+    setupLoaders();
 
     function startPlayer(n){
       var video=document.getElementById('v'+n);
