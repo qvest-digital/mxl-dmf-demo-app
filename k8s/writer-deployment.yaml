@@ -88,8 +88,8 @@ spec:
               value: smpte
             - name: MXL_FLOW_OVERLAY
               value: MXL-1
-            # MXL-1 is the v210-overlay reference tile: blends overlays on
-            # 10-bit packed v210 (the slow path) at 720p, vs I420 for MXL-2..4.
+            # All tiles blend overlays directly on 10-bit packed v210 at 720p
+            # (MXL_OVERLAY_FORMAT=v210), not the I420 fast path.
             - name: MXL_OVERLAY_FORMAT
               value: v210
           command: ["/bin/sh", "-c"]
@@ -194,6 +194,8 @@ spec:
               value: ball
             - name: MXL_FLOW_OVERLAY
               value: MXL-2
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -296,6 +298,8 @@ spec:
               value: gamut
             - name: MXL_FLOW_OVERLAY
               value: MXL-3
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -403,6 +407,8 @@ spec:
               value: checkers-1
             - name: MXL_FLOW_OVERLAY
               value: MXL-4
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
           command: ["/bin/sh", "-c"]
           args:
             - |
