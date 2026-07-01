@@ -387,16 +387,44 @@
     }
     setInterval(poll, 1500); poll();
 
-    // ── Three per-flow HLS players (one mediamtx rendition each, no compositor) ──
+    // ── Per-flow players: WebRTC/WHEP first (sub-second), HLS on fallback ──
     var lagEl=document.getElementById('hls-lag');
-    function startPlayer(n){
-      var src='/hls/mxl-'+n+'/index.m3u8';
-      var video=document.getElementById('v'+n);
+
+    // WHEP: mediamtx serves it at /webrtc/<path>/whep (caddy -> :8889). Non-
+    // trickle — gather ICE, POST the offer, apply the answer. onFail() lets the
+    // caller drop to HLS (e.g. a cluster without the UDP ICE LoadBalancer).
+    function whep(path, video, onFail){
+      var pc, done=false;
+      function fail(){ if(done) return; done=true; clearTimeout(timer); try{pc&&pc.close();}catch(e){} onFail&&onFail(); }
+      var timer=setTimeout(fail, 8000);
+      try { pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]}); }
+      catch(e){ return fail(); }
+      pc.addTransceiver('video',{direction:'recvonly'});
+      pc.addTransceiver('audio',{direction:'recvonly'});
+      pc.ontrack=function(e){ if(!video.srcObject){ video.srcObject=e.streams[0]; var p=video.play&&video.play(); if(p&&p.catch)p.catch(function(){}); } };
+      pc.onconnectionstatechange=function(){
+        if(pc.connectionState==='connected'){ done=true; clearTimeout(timer); }
+        else if(pc.connectionState==='failed'){ fail(); }
+      };
+      pc.createOffer().then(function(o){ return pc.setLocalDescription(o); }).then(function(){
+        return new Promise(function(res){
+          if(pc.iceGatheringState==='complete') return res();
+          var chk=function(){ if(pc.iceGatheringState==='complete'){ pc.removeEventListener('icegatheringstatechange',chk); res(); } };
+          pc.addEventListener('icegatheringstatechange',chk);
+          setTimeout(res, 2500);
+        });
+      }).then(function(){
+        return fetch('/webrtc/'+path+'/whep',{method:'POST',headers:{'Content-Type':'application/sdp'},body:pc.localDescription.sdp});
+      }).then(function(r){ if(!r.ok) throw new Error('whep '+r.status); return r.text(); })
+        .then(function(sdp){ return pc.setRemoteDescription({type:'answer',sdp:sdp}); })
+        .catch(fail);
+      return pc;
+    }
+
+    function hlsPlay(n, video){
+      var src='/hls/'+(n?('mxl-'+n):'')+'/index.m3u8';
+      if (typeof n==='string'){ src='/hls/'+n+'/index.m3u8'; n=0; }
       if (Hls.isSupported()) {
-        // Sit a few segments back from the live edge rather than riding it —
-        // aggressive low-latency makes hls.js nudge currentTime backward on
-        // jitter, re-showing a frame. LL off + a 3-segment target plays
-        // monotonically at the cost of ~1-2s latency.
         var hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
         hls.loadSource(src); hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
@@ -419,6 +447,11 @@
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src=src; video.addEventListener('loadedmetadata', function(){ video.play(); });
       }
+    }
+
+    function startPlayer(n){
+      var video=document.getElementById('v'+n);
+      whep('mxl-'+n, video, function(){ hlsPlay(n, video); });
     }
     [1,2,3,4].forEach(startPlayer);
 
@@ -446,20 +479,10 @@
     // so it doesn't pull those mediamtx encoders until someone looks. ──
     (function(){
       var txv=document.getElementById('txv');
-      var txPath='txdarwin-out', txHls=null, txStarted=false;
+      var txPath='txdarwin-out', txStarted=false, txPc=null;
       function txLoad(){
-        var src='/hls/'+txPath+'/index.m3u8';
-        if (Hls.isSupported()) {
-          if (!txHls) {
-            txHls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
-            txHls.attachMedia(txv);
-            txHls.on(Hls.Events.MANIFEST_PARSED, function(){ txv.play(); });
-            txHls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ txHls.loadSource('/hls/'+txPath+'/index.m3u8'); }, 5000); });
-          }
-          txHls.loadSource(src);
-        } else if (txv.canPlayType('application/vnd.apple.mpegurl')) {
-          txv.src=src; txv.addEventListener('loadedmetadata', function(){ txv.play(); });
-        }
+        try{txPc&&txPc.close();}catch(e){} txPc=null; try{txv.srcObject=null;}catch(e){}
+        txPc=whep(txPath, txv, function(){ hlsPlay(txPath, txv); });
       }
       document.querySelectorAll('.txbtn').forEach(function(b){
         b.addEventListener('click', function(){
@@ -471,21 +494,8 @@
         });
       });
       // Composite: the mosaic the compositor pod RTSP-publishes to mediamtx.
-      var cpv=document.getElementById('cpv'), cpHls=null, cpStarted=false;
-      function cpLoad(){
-        var src='/hls/composite/index.m3u8';
-        if (Hls.isSupported()) {
-          if (!cpHls) {
-            cpHls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
-            cpHls.attachMedia(cpv);
-            cpHls.on(Hls.Events.MANIFEST_PARSED, function(){ cpv.play(); });
-            cpHls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ cpHls.loadSource(src); }, 5000); });
-          }
-          cpHls.loadSource(src);
-        } else if (cpv.canPlayType('application/vnd.apple.mpegurl')) {
-          cpv.src=src; cpv.addEventListener('loadedmetadata', function(){ cpv.play(); });
-        }
-      }
+      var cpv=document.getElementById('cpv'), cpStarted=false, cpPc=null;
+      function cpLoad(){ cpPc=whep('composite', cpv, function(){ hlsPlay('composite', cpv); }); }
       document.querySelectorAll('.tab').forEach(function(t){
         t.addEventListener('click', function(){
           var id=t.getAttribute('data-tab');
