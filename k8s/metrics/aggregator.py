@@ -18,7 +18,18 @@
 import json, os, ssl, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-NS = os.environ.get("DEMO_NS", "demo-app")
+def _own_namespace():
+    # The app runs in demo-app on the sc cluster but in default on the EKS demo
+    # (Flux targetNamespace). Read the pod's own namespace so the namespaced
+    # queries (pods/receivers/mirrors) hit the right one on either cluster.
+    try:
+        with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace") as f:
+            return f.read().strip()
+    except OSError:
+        return "demo-app"
+
+
+NS = os.environ.get("DEMO_NS") or _own_namespace()
 GW_NS = os.environ.get("GW_NS", "mxl-system")
 FLOW_PREFIX = os.environ.get("FLOW_PREFIX", "d4d00000-0000-0000-0000-00000000000")
 N_FLOWS = int(os.environ.get("N_FLOWS", "4"))
