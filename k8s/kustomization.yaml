@@ -5,6 +5,7 @@ resources:
   - ghcr-pull-secret.yaml
   - mediamtx-deployment.yaml
   - mediamtx-service.yaml
+  - mediamtx-webrtc-udp.yaml
   - writer-deployment.yaml
   - composite-deployment.yaml
   - composite-service.yaml

@@ -2,6 +2,15 @@ logLevel: info
 
 webrtc: true
 webrtcAddress: :8889
+# ICE media goes over a dedicated UDP mux port, exposed via its own
+# LoadBalancer (mediamtx-webrtc-udp.yaml). webrtcAdditionalHosts is that
+# LB's IP, advertised as mediamtx's ICE candidate so the browser reaches the
+# RTP directly. NOTE: 10.20.53.107 is the sc/MetalLB (internal) IP; a public
+# cluster needs its own external IP here.
+webrtcLocalUDPAddress: :8189
+webrtcAdditionalHosts: [10.20.53.107]
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
 
 hls: true
 hlsAddress: :8888

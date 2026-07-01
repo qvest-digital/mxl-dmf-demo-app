@@ -1,0 +1,27 @@
+---
+# WebRTC ICE media path. mediamtx serves WHEP signaling over HTTP (proxied by
+# caddy, port 8889) but the actual RTP flows over ICE/UDP — an L7 HTTP ingress
+# can't carry that. Expose the ICE UDP mux port on its own LoadBalancer so the
+# browser can reach it directly; webrtcAdditionalHosts in mediamtx.yml points
+# at this IP so mediamtx advertises it as its ICE candidate.
+#
+# The IP is cluster-specific (sc/MetalLB internal 10.20.53.107). On a public
+# cluster (EKS) this needs a UDP NLB + the public IP instead.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediamtx-webrtc-udp
+  labels:
+    app: mediamtx
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "10.20.53.107"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: mediamtx
+  ports:
+    - name: ice-udp
+      protocol: UDP
+      port: 8189
+      targetPort: 8189
