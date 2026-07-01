@@ -185,6 +185,7 @@
   <nav class="tabs">
     <button class="tab active" data-tab="mv">Multiviewer</button>
     <button class="tab" data-tab="tx">txDarwin / SRT</button>
+    <button class="tab" data-tab="cp">Composite</button>
   </nav>
 
   <div id="pane-mv" class="pane active">
@@ -234,6 +235,13 @@
         <button class="txbtn" data-path="srt-camera">SRT Camera</button>
       </div>
       <video id="txv" class="tx-video" muted autoplay playsinline></video>
+    </main>
+  </div>
+
+  <div id="pane-cp" class="pane">
+    <main class="tx-main">
+      <div class="pc-badge"><span class="pc-mxl">Composite</span><span class="pc-origin">2×2 mosaic</span><span class="pc-node">MXL-1…4</span></div>
+      <video id="cpv" class="tx-video" muted autoplay playsinline></video>
     </main>
   </div>
 
@@ -462,14 +470,30 @@
           txLoad();
         });
       });
+      // Composite: the mosaic the compositor pod RTSP-publishes to mediamtx.
+      var cpv=document.getElementById('cpv'), cpHls=null, cpStarted=false;
+      function cpLoad(){
+        var src='/hls/composite/index.m3u8';
+        if (Hls.isSupported()) {
+          if (!cpHls) {
+            cpHls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
+            cpHls.attachMedia(cpv);
+            cpHls.on(Hls.Events.MANIFEST_PARSED, function(){ cpv.play(); });
+            cpHls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ cpHls.loadSource(src); }, 5000); });
+          }
+          cpHls.loadSource(src);
+        } else if (cpv.canPlayType('application/vnd.apple.mpegurl')) {
+          cpv.src=src; cpv.addEventListener('loadedmetadata', function(){ cpv.play(); });
+        }
+      }
       document.querySelectorAll('.tab').forEach(function(t){
         t.addEventListener('click', function(){
           var id=t.getAttribute('data-tab');
           document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('active'); });
           t.classList.add('active');
-          document.getElementById('pane-mv').classList.toggle('active', id==='mv');
-          document.getElementById('pane-tx').classList.toggle('active', id==='tx');
+          ['mv','tx','cp'].forEach(function(k){ document.getElementById('pane-'+k).classList.toggle('active', id===k); });
           if (id==='tx' && !txStarted){ txStarted=true; txLoad(); }
+          if (id==='cp' && !cpStarted){ cpStarted=true; cpLoad(); }
         });
       });
     })();

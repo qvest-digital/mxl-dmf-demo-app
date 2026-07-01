@@ -35,11 +35,18 @@ spec:
         # pod's podAntiAffinity so the gateway has to bridge two nodes.
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Pinned to n01. Writers are pinned MXL-n -> n0n, leaving no
-      # writer-free node, so the consumer co-locates with writer-mxl-1
-      # (flow 1 reads locally; flows 2-4 arrive cross-node over RDMA).
-      nodeSelector:
-        kubernetes.io/hostname: n01
+      # Co-locate with mediamtx (itself unpinned + portable). Both are
+      # role: consumer, so the operator already mirrors every flow to
+      # mediamtx's node; sharing the node lets the compositor read those same
+      # node-local mirrors and RTSP-publish the mosaic locally. Avoids a
+      # hardcoded hostname (which doesn't exist on the 2-node EKS cluster).
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: mediamtx
+              topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
