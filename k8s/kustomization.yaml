@@ -6,6 +6,8 @@ resources:
   - mediamtx-deployment.yaml
   - mediamtx-service.yaml
   - writer-deployment.yaml
+  - composite-deployment.yaml
+  - composite-service.yaml
   - metrics-aggregator.yaml
   - txdarwin-output-viewer.yaml
   - mxl-receivers.yaml
