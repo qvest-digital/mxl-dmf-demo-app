@@ -129,10 +129,15 @@
   .detail h3:first-child { margin-top: 0; }
   .kv { display: grid; grid-template-columns: 132px 1fr; gap: 2px 10px; font-size: 12.5px; }
   .kv .k { opacity: .6; }
-  .kv .v { font-weight: 600; word-break: break-word; }
-  .kv .v.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+  .kv .v { font-weight: 600; word-break: break-word; display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+  .kv .v .vv { min-width: 0; word-break: break-word; }
+  .kv .v.mono, .kv .v.mono .vv { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
   .kv .v.ok { color: var(--qv-lime); }
   .kv .v.bad { color: var(--qv-orange); }
+  .cp { flex: none; border: none; background: transparent; color: inherit; cursor: pointer;
+        opacity: .35; font-size: 12px; line-height: 1; padding: 2px 3px; border-radius: 5px; }
+  .cp:hover { opacity: 1; background: rgba(255,255,255,.12); }
+  .cp.done { opacity: 1; color: var(--qv-lime); }
 
   .gwbar { display: flex; flex-direction: column; gap: 8px; }
   .gwgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -280,7 +285,7 @@
       cards[n]=c; return c;
     }
 
-    function kvRow(k,v,cls){ return '<div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v+'</div>'; }
+    function kvRow(k,v,cls){ return '<div class="k">'+k+'</div><div class="v '+(cls||'')+'"><span class="vv">'+v+'</span><button class="cp" type="button" title="Copy" aria-label="Copy">⧉</button></div>'; }
 
     function renderDetail(f){
       var w=f.writer||{}, comp=f.compositor||{}, rc=f.receiver||{}, fl=f.flow||{};
@@ -397,6 +402,25 @@
       }
     }
     [1,2,3,4].forEach(startPlayer);
+
+    // Copy button on every detail row — delegated, so it keeps working for the
+    // rows build() regenerates on each refresh. Copies the row's value text
+    // (clipboard API, with an execCommand fallback for non-secure contexts).
+    document.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('.cp') : null;
+      if (!b) return;
+      var vv = b.parentElement.querySelector('.vv');
+      var txt = (vv ? vv.textContent : '').trim();
+      if (!txt || txt === '--') return;
+      function done(){ b.classList.add('done'); b.textContent='✓'; setTimeout(function(){ b.classList.remove('done'); b.textContent='⧉'; }, 1000); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(done, function(){});
+      } else {
+        var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch(_){}
+        document.body.removeChild(ta);
+      }
+    });
 
     // ── Tabs + txDarwin/SRT switcher: one player, source-switchable between the
     // txDarwin output and the SRT-camera ingest. Lazy-started on first tab open
