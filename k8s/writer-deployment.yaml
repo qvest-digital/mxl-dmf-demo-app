@@ -79,7 +79,7 @@ spec:
           # MXL-1 runs the ORIGINAL v210-overlay writer (1080p) on purpose:
           # a side-by-side reference vs the I420/720p tiles (MXL-2..4). The
           # v210 overlay blend is the slow path — this tile is meant to look it.
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:476db9b6d6df66a7991f687c86e8948620aefef7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -88,6 +88,10 @@ spec:
               value: smpte
             - name: MXL_FLOW_OVERLAY
               value: MXL-1
+            # MXL-1 is the v210-overlay reference tile: blends overlays on
+            # 10-bit packed v210 (the slow path) at 720p, vs I420 for MXL-2..4.
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -181,7 +185,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -283,7 +287,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
@@ -390,7 +394,7 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          image: ghcr.io/qvest-digital/mxl-dmf-writer:85674165d5ea94ff4f67fcd509584537d4a795a7
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:a2ca7dc2a8e65ee9aec6dedcaceb4c4949e6c19c
           imagePullPolicy: IfNotPresent
           env:
             - name: MXL_FLOW_ID
