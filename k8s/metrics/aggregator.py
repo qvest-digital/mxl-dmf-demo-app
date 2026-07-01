@@ -178,7 +178,12 @@ def build():
         writer_ok = bool(writer and writer.get("ready"))
         mirror_ok = any(m.get("phase") == "Ready" for m in mlist)
         origin_ok = bool(flow_info and flow_info.get("originFresh") == "True")
-        live = writer_ok and mirror_ok and origin_ok
+        # A flow is live if its writer is up and its origin lease is fresh, AND
+        # it's delivered: either a Ready cross-node mirror, or NO mirror at all
+        # (the flow's producer is co-located with mediamtx, so it's read locally
+        # — placement is dynamic, so which flow is local varies). Requiring a
+        # mirror unconditionally made the local flow show as down.
+        live = writer_ok and origin_ok and (mirror_ok or not mlist)
         comp = {
             "fps": round(GRAIN_RATE, 1) if live else 0,
             "mbps": round(GRAIN_BYTES * GRAIN_RATE * 8 / 1e6) if live else 0,
