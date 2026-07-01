@@ -30,6 +30,16 @@
     }
   }
 
+  # WebRTC/WHEP signaling. mediamtx serves it on :8889 at /<path>/whep; the
+  # frontend posts to /webrtc/<path>/whep and caddy strips the prefix. Rewrite
+  # the Location header so the WHEP session resource stays under /webrtc.
+  # (ICE media does NOT go through here — that's the UDP LoadBalancer.)
+  handle_path /webrtc/* {
+    reverse_proxy http://localhost:8889 {
+      header_down Location "^/(.*)$" "/webrtc/$1"
+    }
+  }
+
   handle {
     root * /srv
     file_server
