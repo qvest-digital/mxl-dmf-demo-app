@@ -153,6 +153,10 @@ def build():
                 "image": cs.get("image"),
                 "pattern": env.get("MXL_FLOW_PATTERN"),
                 "overlay": env.get("MXL_FLOW_OVERLAY"),
+                # Overlay compositing format the writer runs (I420 fast path vs
+                # the deliberate v210 reference tile). Defaults to I420 like the
+                # writer itself when the env is unset.
+                "overlayFormat": env.get("MXL_OVERLAY_FORMAT") or "I420",
             }
 
         rc = receiver_for(uuid)
@@ -176,6 +180,7 @@ def build():
 
         fl = flow_cr(uuid)
         flow_info = None
+        media = None
         if fl:
             conds = {c["type"]: c for c in (fl.get("status", {}).get("conditions") or [])}
             of = conds.get("OriginFresh", {})
@@ -185,6 +190,31 @@ def build():
                 "locations": [{"node": l.get("nodeName"), "phase": l.get("phase")}
                               for l in (fl.get("status", {}).get("locations") or [])],
             }
+            # Media metadata straight off the flow definition: v210, resolution,
+            # bit depth, grain rate, and the resulting uncompressed grain size /
+            # RDMA throughput. v210 rows pad to a 48-pixel (128-byte) stride.
+            d = fl.get("spec", {}).get("definition", {}) or {}
+            if d.get("frame_width"):
+                w = d.get("frame_width")
+                h = d.get("frame_height") or 0
+                gr = d.get("grain_rate", {}) or {}
+                num = gr.get("numerator") or 0
+                den = gr.get("denominator") or 1
+                comps = d.get("components") or []
+                stride = ((w + 47) // 48) * 128
+                gbytes = stride * h
+                rate = (num / den) if num else GRAIN_RATE
+                media = {
+                    "mediaType": d.get("media_type"),
+                    "width": w,
+                    "height": h,
+                    "bitDepth": (comps[0].get("bit_depth") if comps else None),
+                    "colorspace": d.get("colorspace"),
+                    "grainRate": (f"{num}/{den}" if num else None),
+                    "fps": round(rate, 2),
+                    "grainBytes": gbytes,
+                    "mbps": round(gbytes * rate * 8 / 1e6),
+                }
 
         writer_ok = bool(writer and writer.get("ready"))
         mirror_ok = any(m.get("phase") == "Ready" for m in mlist)
@@ -195,9 +225,11 @@ def build():
         # — placement is dynamic, so which flow is local varies). Requiring a
         # mirror unconditionally made the local flow show as down.
         live = writer_ok and origin_ok and (mirror_ok or not mlist)
+        gbytes = (media or {}).get("grainBytes") or GRAIN_BYTES
+        rate = (media or {}).get("fps") or GRAIN_RATE
         comp = {
-            "fps": round(GRAIN_RATE, 1) if live else 0,
-            "mbps": round(GRAIN_BYTES * GRAIN_RATE * 8 / 1e6) if live else 0,
+            "fps": round(rate, 1) if live else 0,
+            "mbps": round(gbytes * rate * 8 / 1e6) if live else 0,
             "live": live,
         }
 
@@ -206,6 +238,7 @@ def build():
             "label": f"MXL-{n}",
             "uuid": uuid,
             "compositor": comp,
+            "media": media,
             "writer": writer,
             "receiver": receiver,
             "mirrors": mlist,

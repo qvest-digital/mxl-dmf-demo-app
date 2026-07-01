@@ -288,11 +288,22 @@
     function kvRow(k,v,cls){ return '<div class="k">'+k+'</div><div class="v '+(cls||'')+'"><span class="vv">'+v+'</span><button class="cp" type="button" title="Copy" aria-label="Copy">⧉</button></div>'; }
 
     function renderDetail(f){
-      var w=f.writer||{}, comp=f.compositor||{}, rc=f.receiver||{}, fl=f.flow||{};
+      var w=f.writer||{}, comp=f.compositor||{}, rc=f.receiver||{}, fl=f.flow||{}, m=f.media||{};
       var mir=(f.mirrors||[]).map(function(m){return m.sourceNode+'→'+m.name.split('--').pop()+' '+m.phase+' ('+m.provider+')';}).join('<br>')||'--';
       var locs=(fl.locations||[]).map(function(l){return l.node+':'+l.phase;}).join(', ')||'--';
       var ofresh = fl.originFresh==='True';
       return ''+
+        '<h3>Media</h3><div class="kv">'+
+          kvRow('grain format', esc(m.mediaType)||'--')+
+          kvRow('overlay blend', esc(w.overlayFormat)||'--', w.overlayFormat==='v210'?'bad':(w.overlayFormat?'ok':''))+
+          kvRow('resolution', (m.width&&m.height)? (m.width+'×'+m.height) : '--')+
+          kvRow('bit depth', m.bitDepth? (m.bitDepth+'-bit') : '--')+
+          kvRow('colorspace', esc(m.colorspace)||'--')+
+          kvRow('grain rate', esc(m.grainRate)||'--')+
+          kvRow('fps', fmt(m.fps,2))+
+          kvRow('grain size', m.grainBytes? ((m.grainBytes/1048576).toFixed(2)+' MiB') : '--')+
+          kvRow('RDMA rate', m.mbps? (m.mbps+' Mbit/s') : '--')+
+        '</div>'+
         '<h3>Writer pod</h3><div class="kv">'+
           kvRow('node', esc(w.node)||'--', w.node? 'ok':'')+
           kvRow('phase', esc(w.phase)||'--', w.phase==='Running'?'ok':'bad')+
