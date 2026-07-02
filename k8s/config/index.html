@@ -194,7 +194,6 @@
       <span class="sub">MXL · RDMA Multiviewer</span>
     </div>
     <div class="status">
-      <span class="pill">HLS lag <b id="hls-lag">--</b> ms</span>
       <span class="pill"><b id="clk">--:--:--</b></span>
     </div>
   </header>
@@ -405,7 +404,6 @@
     setInterval(poll, 1500); poll();
 
     // ── Per-flow players: WebRTC/WHEP first (sub-second), HLS on fallback ──
-    var lagEl=document.getElementById('hls-lag');
 
     // WHEP: mediamtx serves it at /webrtc/<path>/whep (caddy -> :8889). Non-
     // trickle — gather ICE, POST the offer, apply the answer. onFail() lets the
@@ -446,21 +444,6 @@
         hls.loadSource(src); hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
         hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ hls.loadSource(src); }, 5000); });
-        if (n===1) {
-          var frags={};
-          function rememberFrag(f){ if(f.programDateTime==null) return; frags[f.sn]={pdt:f.programDateTime,start:f.start,dur:f.duration}; var k=Object.keys(frags); if(k.length>8){k.sort(function(a,b){return +a-+b;}); delete frags[k[0]];} }
-          hls.on(Hls.Events.LEVEL_LOADED, function(ev,data){ if(data.details&&data.details.fragments) data.details.fragments.forEach(rememberFrag); });
-          hls.on(Hls.Events.FRAG_LOADED, function(ev,data){ rememberFrag(data.frag); });
-          setInterval(function(){
-            if (video.readyState<2) return;
-            var ct=video.currentTime, match=null;
-            for (var k in frags){ var f=frags[k]; if(ct>=f.start && ct<f.start+f.dur){match=f;break;} }
-            if (!match) return;
-            var lag=Date.now()-(match.pdt+(ct-match.start)*1000);
-            if (lag<0||lag>60000) return;
-            lagEl.textContent=lag.toFixed(0);
-          }, 250);
-        }
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src=src; video.addEventListener('loadedmetadata', function(){ video.play(); });
       }
