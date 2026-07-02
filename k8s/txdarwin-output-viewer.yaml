@@ -46,11 +46,18 @@ spec:
                   app: composite
               topologyKey: kubernetes.io/hostname
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  mxl.qvest-digital.com/role: producer
-              topologyKey: kubernetes.io/hostname
+          # Prefer a producer-free node (sc has one), but don't require it: on a
+          # 2-node cluster (EKS) the compositor shares its node with writers, so
+          # a required rule here plus the required composite affinity is
+          # unsatisfiable -> pod Pending -> demo-app health gate + the terraform
+          # fluxcd-bootstrap step time out.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
