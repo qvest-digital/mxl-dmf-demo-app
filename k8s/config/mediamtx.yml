@@ -119,6 +119,11 @@ paths:
   srt-camera:
     source: mxl:///run/mxl/domain/b2000000-0000-0000-0000-000000000001
     sourceOnDemand: false
-    mxlH264Preset: veryfast
-    mxlH264Profile: high
+    # Baseline profile (like the mxl-1..4 tiles, avc1.42..) so browser WebRTC
+    # decoders can render it. Main/High H264 connects over WHEP but renders black,
+    # forcing the HLS fallback and its multi-second lag. srt-camera is the live
+    # ingest where sub-second WebRTC latency is the whole point, so it must be
+    # baseline. ultrafast disables CABAC/8x8dct -> Constrained Baseline output.
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
     mxlH264Bitrate: 5000000

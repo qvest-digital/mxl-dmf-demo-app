@@ -499,12 +499,17 @@
       var txPath='txdarwin-out', txStarted=false, txPc=null;
       function txLoad(){
         try{txPc&&txPc.close();}catch(e){} txPc=null; try{txv.srcObject=null;}catch(e){}
-        // Both sources of this switcher are non-baseline H264 — txdarwin-out is
-        // Main profile (avc1.4d..; hardcoded in the compositor x264enc) and
-        // srt-camera is High (avc1.64..). Browser WebRTC decoders render those
-        // black (they connect, so the WHEP fallback never fires), exactly like
-        // the 2x2 composite. HLS/MSE decodes Main/High fine, so play over HLS.
-        hlsPlay(txPath, txv);
+        // txdarwin-out is Main-profile H264 (avc1.4d..; hardcoded in the compositor
+        // x264enc) which browser WebRTC decoders render black — they connect, so
+        // the WHEP fallback never fires. Play it over HLS/MSE like the 2x2
+        // composite. srt-camera is a live ingest where sub-second latency is the
+        // point, so keep it on WebRTC (WHEP) with HLS fallback; it is encoded
+        // baseline (see mediamtx.yml srt-camera) so the browser can decode it.
+        if (txPath==='txdarwin-out'){
+          hlsPlay(txPath, txv);
+        } else {
+          txPc=whep(txPath, txv, function(){ hlsPlay(txPath, txv); });
+        }
       }
       document.querySelectorAll('.txbtn').forEach(function(b){
         b.addEventListener('click', function(){
