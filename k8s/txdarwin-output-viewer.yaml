@@ -84,6 +84,15 @@ spec:
             # one-tile output when MXL_FLOW_IDS has a single entry.
             - name: MXL_FLOW_IDS
               value: "c3000000-0000-0000-0000-000000000001"
+            # Grain geometry. The viewer/compositor defaults to 1920x1080, but
+            # txDarwin now passes through the 720p input, so c3000000 is v210 at
+            # 1296x720. Without this the reader wraps each grain at the wrong
+            # size -> "invalid video buffer received" in videoconvert -> no
+            # output. Must match the txDarwin MxlWriter frameWidth/frameHeight.
+            - name: MXL_FRAME_WIDTH
+              value: "1296"
+            - name: MXL_FRAME_HEIGHT
+              value: "720"
             - name: LD_PRELOAD
               value: /opt/mxl-intent/libmxl-intent.so
           securityContext:
