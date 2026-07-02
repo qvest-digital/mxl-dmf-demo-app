@@ -404,7 +404,7 @@ spec:
             - name: MXL_FLOW_ID
               value: d4d00000-0000-0000-0000-000000000004
             - name: MXL_FLOW_PATTERN
-              value: checkers-1
+              value: checkers-8
             - name: MXL_FLOW_OVERLAY
               value: MXL-4
             - name: MXL_OVERLAY_FORMAT
