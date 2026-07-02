@@ -529,7 +529,11 @@
       });
       // Composite: the mosaic the compositor pod RTSP-publishes to mediamtx.
       var cpv=document.getElementById('cpv'), cpStarted=false, cpPc=null;
-      function cpLoad(){ cpPc=whep('composite', cpv, function(){ hlsPlay('composite', cpv); }); }
+      // Composite is a 2592x1440 (2x2 mosaic) Main-profile H264 stream — browser
+      // WebRTC decoders choke on that (they connect but render black), while
+      // HLS/MSE handles it fine. So the mosaic plays over HLS, not WHEP. It's a
+      // latency-tolerant overview anyway; the live per-flow tiles stay WebRTC.
+      function cpLoad(){ hlsPlay('composite', cpv); }
       document.querySelectorAll('.tab').forEach(function(t){
         t.addEventListener('click', function(){
           var id=t.getAttribute('data-tab');
