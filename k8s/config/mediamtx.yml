@@ -116,6 +116,19 @@ paths:
   # source from an HLS request, so an on-demand srt-camera never comes online
   # (same reason mxl-stream-native is always-on). When the camera isn't
   # streaming the MXL reader just logs "flow not found" and retries — harmless.
+  # DMF-298/303 showcase: output of the per-booking txDarwin instance
+  # named "ac3demo". The deploy workflow derives writer flow ids
+  # deterministically (c3…-shasum(name)[0:12]), so this id is stable for
+  # that instance name across re-deploys. Baseline profile for WebRTC,
+  # same reasoning as srt-camera.
+  txdarwin-ac3demo-out:
+    source: mxl:///run/mxl/domain/c3000000-0000-0000-0000-9d18249f84f4
+    sourceOnDemand: false
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
+    mxlH264Bitrate: 5000000
+    mxlH264IDRPeriod: 30
+
   srt-camera:
     source: mxl:///run/mxl/domain/b2000000-0000-0000-0000-000000000001
     sourceOnDemand: false

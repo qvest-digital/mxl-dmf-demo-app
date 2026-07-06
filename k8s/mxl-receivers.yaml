@@ -87,3 +87,18 @@ spec:
   podSelector:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
+---
+# DMF-298/303 showcase: writer output of the per-booking txDarwin instance
+# "ac3demo" (deterministic id: c3…-shasum("ac3demo")[0:12]). Lets mediamtx
+# open the flow (intent-shim) and the operator mirror it cross-node for the
+# `txdarwin-ac3demo-out` panel.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: txdarwin-ac3demo-output
+spec:
+  flowID: "c3000000-0000-0000-0000-9d18249f84f4"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
