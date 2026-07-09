@@ -254,6 +254,100 @@ def build():
     }
 
 
+# ── Booking lifecycle (DMF-298/303 showcase) ────────────────────────────────
+# The MediaOps booking deploys a per-booking txDarwin instance: a
+# MediaFunctionInstance CR, from which the DMF operator renders a HelmRelease,
+# which Flux turns into a pod. The showcase screen needs all three, plus the
+# instance's *wired* sources — that is what tells template-1 (2 sources) from
+# template-2 (3), and it lives in the HelmRelease values, not in the CR.
+BOOKING_NS = os.environ.get("BOOKING_NS", "txdarwin")
+
+
+def _age(ts):
+    """ISO8601 -> seconds, or None. The UI renders relative times itself."""
+    if not ts:
+        return None
+    try:
+        from datetime import datetime, timezone
+        t = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return int((datetime.now(timezone.utc) - t).total_seconds())
+    except Exception:
+        return None
+
+
+def _cond(obj, typ):
+    for c in (obj.get("status", {}) or {}).get("conditions", []) or []:
+        if c.get("type") == typ:
+            return c
+    return {}
+
+
+def booking():
+    instances = safe_k8s(
+        f"/apis/dmf.qvest-digital.com/v1alpha1/namespaces/{BOOKING_NS}/mediafunctioninstances"
+    ).get("items", [])
+    releases = safe_k8s(
+        f"/apis/helm.toolkit.fluxcd.io/v2/namespaces/{BOOKING_NS}/helmreleases"
+    ).get("items", [])
+    pods = safe_k8s(f"/api/v1/namespaces/{BOOKING_NS}/pods").get("items", [])
+
+    hr_by_name = {h["metadata"]["name"]: h for h in releases}
+    # An instance is torn down CR-first, so key the view on the HelmRelease:
+    # it outlives the CR (ScaleToZero) and its replicaCount is what actually
+    # says whether the workload is meant to be running.
+    names = sorted(set(list(hr_by_name) + [i["metadata"]["name"] for i in instances]))
+
+    out = []
+    for name in names:
+        hr = hr_by_name.get(name, {})
+        inst = next((i for i in instances if i["metadata"]["name"] == name), None)
+        vals = (hr.get("spec", {}) or {}).get("values", {}) or {}
+        flow = vals.get("flow", {}) or {}
+        sources = flow.get("readerFlowIds") or ([flow["readerFlowId"]] if flow.get("readerFlowId") else [])
+        pod = next((p for p in pods if p["metadata"]["name"].startswith(name + "-")), None)
+        ready = _cond(hr, "Ready")
+        out.append({
+            "name": name,
+            # The CR is the booking's intent; once it is gone the instance is
+            # being reclaimed even though the release object may linger.
+            "type": ((inst or {}).get("spec", {}) or {}).get("typeName"),
+            "instancePhase": ((inst or {}).get("status", {}) or {}).get("phase") if inst else "reclaimed",
+            "jobRef": (((inst or {}).get("spec", {}) or {}).get("booking", {}) or {}).get("jobRef"),
+            "windowEnd": ((((inst or {}).get("spec", {}) or {}).get("booking", {}) or {}).get("window", {}) or {}).get("end"),
+            "replicas": vals.get("replicaCount"),
+            "helmReady": ready.get("status") == "True",
+            "helmMessage": ready.get("message"),
+            # Source count IS the template: 2 -> template-1, 3 -> template-2.
+            # sources[0] is where the chart starts the reader.
+            "sources": sources,
+            "readerFlow": sources[0] if sources else None,
+            "outFlow": flow.get("writerFlowId") or None,
+            "pod": None if not pod else {
+                "name": pod["metadata"]["name"],
+                "phase": pod.get("status", {}).get("phase"),
+                "node": pod.get("spec", {}).get("nodeName"),
+                "ageSeconds": _age(pod["metadata"].get("creationTimestamp")),
+                "deleting": bool(pod["metadata"].get("deletionTimestamp")),
+            },
+        })
+
+    # Events carry the visible lifecycle ("Scheduled", "Pulled", "Started",
+    # "Killing"). Newest last so the client can append without re-sorting.
+    ev = safe_k8s(f"/api/v1/namespaces/{BOOKING_NS}/events?limit=40").get("items", [])
+    events = sorted(
+        ({
+            "at": e.get("lastTimestamp") or e.get("eventTime"),
+            "reason": e.get("reason"),
+            "object": (e.get("involvedObject", {}) or {}).get("name"),
+            "kind": (e.get("involvedObject", {}) or {}).get("kind"),
+            "message": (e.get("message") or "")[:160],
+        } for e in ev if e.get("lastTimestamp") or e.get("eventTime")),
+        key=lambda x: x["at"] or "",
+    )[-25:]
+
+    return {"namespace": BOOKING_NS, "instances": out, "events": events}
+
+
 class H(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode()
@@ -269,7 +363,12 @@ class H(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        if self.path.startswith("/api/flows"):
+        if self.path.startswith("/api/booking"):
+            try:
+                self._send(200, booking())
+            except Exception as e:
+                self._send(500, {"error": str(e)})
+        elif self.path.startswith("/api/flows"):
             try:
                 self._send(200, build())
             except Exception as e:

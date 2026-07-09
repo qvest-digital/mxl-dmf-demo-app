@@ -53,6 +53,18 @@ rules:
   - apiGroups: [mxl.qvest-digital.com]
     resources: [mxlflows]
     verbs: [get, list]
+  # DMF-298/303 booking screen: the per-booking instances live in the txdarwin
+  # namespace, not in demo-app's, so these reads need the ClusterRole too.
+  # Read-only — the showcase observes the booking lifecycle, it never drives it.
+  - apiGroups: [dmf.qvest-digital.com]
+    resources: [mediafunctioninstances]
+    verbs: [get, list]
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -105,6 +117,10 @@ spec:
               value: "4"
             - name: COMPOSITOR_STATS
               value: http://composite:9090/
+            # Namespace the per-booking txDarwin instances are deployed into
+            # (see mxl-dmf-txdarwin-flux: the deploy workflow rejects any other).
+            - name: BOOKING_NS
+              value: txdarwin
           ports:
             - name: http
               containerPort: 8088

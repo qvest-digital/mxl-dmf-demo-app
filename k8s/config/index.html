@@ -169,21 +169,40 @@
   .txbtn.active { background: var(--qv-orange); color: #fff; }
   .tx-video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--qv-radius); display: block; }
 
-  /* Booking demo: the two per-booking txDarwin instances side by side, so the
-     hand-over at a booking boundary is visible — B's tile comes up during A's
-     air time (pre-roll), A's goes black after its post-roll. */
-  .bk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 900px) { .bk-grid { grid-template-columns: 1fr; } }
-  .bk-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  /* Booking showcase: the per-booking txDarwin instances on the left, the
+     lifecycle the schedule drives on the right. A tile's source chips are the
+     template's fingerprint — two chips is template-1, three is template-2 —
+     because the wired source list is what the booking actually deployed. */
+  .bk-main { padding: 20px 28px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 18px; }
+  @media (max-width: 1100px) { .bk-main { grid-template-columns: 1fr; } }
+  .bk-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .bk-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .bk-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; opacity: .45; transition: opacity .3s; }
+  .bk-tile.on { opacity: 1; }
   .bk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .bk-title { font-size: 14px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
   .bk-sub { font-size: 12px; opacity: .55; }
   .bk-badge {
     font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-    padding: .3em .8em; border-radius: var(--qv-radius-pill); background: #ddd; color: #555;
+    padding: .3em .8em; border-radius: var(--qv-radius-pill); background: #ddd; color: #555; white-space: nowrap;
   }
   .bk-badge.live { background: var(--qv-lime); color: var(--qv-ink); }
+  .bk-badge.pending { background: var(--qv-orange); color: #fff; }
   .bk-video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--qv-radius); display: block; }
+  .bk-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .bk-chip {
+    font-size: 11px; font-weight: 700; padding: .3em .7em; border-radius: var(--qv-radius-pill);
+    border: 2px solid rgba(0,0,0,.12); color: #666;
+  }
+  .bk-chip.active { border-color: var(--qv-orange); color: var(--qv-orange); }
+  .bk-state { font-size: 12.5px; line-height: 1.7; }
+  .bk-state .kvline { display: grid; grid-template-columns: 116px 1fr; gap: 4px 10px; }
+  .bk-state b { font-weight: 800; }
+  .bk-log-panel { flex: 1; min-height: 0; }
+  .bk-log { list-style: none; margin: 0; padding: 0; font-size: 12px; max-height: 46vh; overflow-y: auto; }
+  .bk-log li { padding: 5px 0; border-bottom: 1px solid rgba(0,0,0,.06); display: grid; grid-template-columns: 62px 1fr; gap: 8px; }
+  .bk-log .t { opacity: .5; font-variant-numeric: tabular-nums; }
+  .bk-log .r { font-weight: 800; }
 
   /* Loading overlay: shown over each video until it starts playing (WebRTC ICE
      handshake takes a moment; on fallback, HLS buffering does too). */
@@ -273,29 +292,42 @@
   </div>
 
   <div id="pane-bk" class="pane">
-    <main class="tx-main">
-      <div class="bk-grid">
-        <div class="bk-tile">
+    <main class="bk-main">
+      <section class="bk-left">
+        <div class="bk-tile" id="bk-card-t1">
           <div class="bk-head">
             <div>
-              <div class="bk-title">Template 1 Out</div>
-              <div class="bk-sub">instance t1 &middot; 2 SRT sources</div>
+              <div class="bk-title">Template 1 &middot; instance t1</div>
+              <div class="bk-sub" id="bk-sub-t1">&mdash;</div>
             </div>
             <span class="bk-badge" id="bk-badge-t1">offline</span>
           </div>
           <video id="bkv-t1" class="bk-video" muted autoplay playsinline></video>
+          <div class="bk-chips" id="bk-chips-t1"></div>
         </div>
-        <div class="bk-tile">
+        <div class="bk-tile" id="bk-card-t2">
           <div class="bk-head">
             <div>
-              <div class="bk-title">Template 2 Out</div>
-              <div class="bk-sub">instance t2 &middot; 3 SRT sources</div>
+              <div class="bk-title">Template 2 &middot; instance t2</div>
+              <div class="bk-sub" id="bk-sub-t2">&mdash;</div>
             </div>
             <span class="bk-badge" id="bk-badge-t2">offline</span>
           </div>
           <video id="bkv-t2" class="bk-video" muted autoplay playsinline></video>
+          <div class="bk-chips" id="bk-chips-t2"></div>
         </div>
-      </div>
+      </section>
+
+      <aside class="bk-right">
+        <div class="panel">
+          <h2>Booking Lifecycle</h2>
+          <div class="bk-state" id="bk-state">warte auf Buchung&hellip;</div>
+        </div>
+        <div class="panel bk-log-panel">
+          <h2>Cluster-Ereignisse</h2>
+          <ol class="bk-log" id="bk-log"></ol>
+        </div>
+      </aside>
     </main>
   </div>
 
@@ -573,42 +605,94 @@
       // latency-tolerant overview anyway; the live per-flow tiles stay WebRTC.
       function cpLoad(){ hlsPlay('composite', cpv); }
 
-      // Booking tiles. Both instances are deployed and torn down by MediaOps
-      // bookings, so a tile is black most of the time and its path 404s while
-      // the instance is gone. Retry on a timer and drive the badge off actual
-      // frame progress (currentTime advancing) rather than the connection
-      // state: WebRTC stays "connected" after the publisher disappears, which
-      // would otherwise report a torn-down instance as live.
+      // ── Booking showcase ──────────────────────────────────────────────────
+      // Left: the two instances a MediaOps booking can deploy, each with the
+      // source list its template wired — two chips is template-1, three is
+      // template-2, read from what was actually deployed, not from a caption.
+      // Right: what the schedule is doing to the cluster right now.
+      //
+      // Video liveness comes from frame progress, not from the WebRTC state:
+      // the peer connection stays "connected" after the publisher disappears,
+      // so a torn-down instance would otherwise still read as live.
       var bkStarted=false;
-      var bkTiles=[
-        { path:'txdarwin-t1-out', video:'bkv-t1', badge:'bk-badge-t1' },
-        { path:'txdarwin-t2-out', video:'bkv-t2', badge:'bk-badge-t2' }
-      ];
-      function bkStart(){
-        bkTiles.forEach(function(t){
-          var v=document.getElementById(t.video), badge=document.getElementById(t.badge);
-          var pc=null, last=-1, live=false;
-          function connect(){
-            try{pc&&pc.close();}catch(e){} pc=null; try{v.srcObject=null;}catch(e){}
-            pc=whep(t.path, v, function(){ hlsPlay(t.path, v); });
-          }
-          function setLive(on){
-            if (on===live) return;
-            live=on;
-            badge.classList.toggle('live', on);
-            badge.textContent = on ? 'live' : 'offline';
-          }
-          connect();
-          setInterval(function(){
-            var progressed = v.currentTime > last + 0.01;
-            last = v.currentTime;
-            setLive(progressed);
-            // Nothing arriving: the instance is down, or came back on a new
-            // WebRTC session. Reconnecting is cheap and idempotent.
-            if (!progressed) connect();
-          }, 4000);
-        });
+      var BK=[{name:'t1',path:'txdarwin-t1-out'},{name:'t2',path:'txdarwin-t2-out'}];
+
+      function bkVideo(t){
+        var v=document.getElementById('bkv-'+t.name), badge=document.getElementById('bk-badge-'+t.name);
+        var card=document.getElementById('bk-card-'+t.name), last=-1, pc=null;
+        function connect(){
+          try{pc&&pc.close();}catch(e){} pc=null; try{v.srcObject=null;}catch(e){}
+          pc=whep(t.path, v, function(){ hlsPlay(t.path, v); });
+        }
+        connect();
+        setInterval(function(){
+          var moving = v.currentTime > last + 0.01;
+          last = v.currentTime;
+          card.classList.toggle('on', moving);
+          if (moving){ badge.textContent='live'; badge.classList.add('live'); badge.classList.remove('pending'); }
+          else if (!badge.classList.contains('pending')){ badge.textContent='offline'; badge.classList.remove('live'); }
+          // Nothing arriving: the instance is down, or it came back on a fresh
+          // publisher session. Reconnecting is cheap and idempotent.
+          if (!moving) connect();
+        }, 4000);
       }
+
+      function bkChips(name, inst){
+        var box=document.getElementById('bk-chips-'+name);
+        if (!inst || !inst.sources || !inst.sources.length){ box.innerHTML=''; return; }
+        box.innerHTML = inst.sources.map(function(f,i){
+          var on = f===inst.readerFlow;
+          return '<span class="bk-chip'+(on?' active':'')+'">SRT-'+(i+1)+(on?' &bull; liest':'')+'</span>';
+        }).join('');
+      }
+
+      function bkRenderState(d){
+        var box=document.getElementById('bk-state');
+        if (!d.instances.length){ box.textContent='keine Instanz deployt \u2014 warte auf Pre-Roll'; return; }
+        box.innerHTML = d.instances.map(function(i){
+          var pod = i.pod ? (i.pod.deleting ? 'terminating' : i.pod.phase) : '\u2014';
+          return '<div class="kvline">'
+            + '<div>Instanz</div><div><b>'+i.name+'</b> ('+(i.type||'?')+')</div>'
+            + '<div>Zustand</div><div>'+(i.instancePhase||'\u2014')+'</div>'
+            + '<div>Pod</div><div>'+pod+(i.pod&&i.pod.node?' @ '+i.pod.node.split('.')[0]:'')+'</div>'
+            + '<div>Replicas</div><div>'+(i.replicas===undefined?'\u2014':i.replicas)+'</div>'
+            + '<div>Quellen</div><div>'+(i.sources?i.sources.length:0)+'</div>'
+            + '<div>Buchung</div><div>'+(i.jobRef||'\u2014')+'</div>'
+            + '</div>';
+        }).join('<hr style="border:none;border-top:1px solid rgba(0,0,0,.08);margin:8px 0">');
+      }
+
+      function bkRenderLog(events){
+        var log=document.getElementById('bk-log');
+        log.innerHTML = events.slice().reverse().map(function(e){
+          var t = (e.at||'').slice(11,19);
+          return '<li><span class="t">'+t+'</span><span><span class="r">'+(e.reason||'')+'</span> '
+               + (e.object||'') + ' \u2014 ' + (e.message||'') + '</span></li>';
+        }).join('');
+      }
+
+      function bkPoll(){
+        fetch('/api/booking',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+          if (d.error || !d.instances) return;
+          BK.forEach(function(t){
+            var inst = d.instances.filter(function(i){ return i.name===t.name; })[0];
+            bkChips(t.name, inst);
+            var sub=document.getElementById('bk-sub-'+t.name), badge=document.getElementById('bk-badge-'+t.name);
+            sub.textContent = inst ? ((inst.sources||[]).length + ' SRT-Quellen \u00b7 ' + (inst.type||'')) : 'nicht deployt';
+            // Deployed but no frames yet (image pull, reader still starting):
+            // say that, instead of showing "offline" next to a running pod.
+            if (inst && inst.replicas && !badge.classList.contains('live')){
+              badge.textContent='deploying'; badge.classList.add('pending');
+            } else if (!inst || !inst.replicas){
+              badge.classList.remove('pending');
+            }
+          });
+          bkRenderState(d);
+          bkRenderLog(d.events||[]);
+        }).catch(function(){});
+      }
+
+      function bkStart(){ BK.forEach(bkVideo); bkPoll(); setInterval(bkPoll, 2500); }
 
       document.querySelectorAll('.tab').forEach(function(t){
         t.addEventListener('click', function(){
