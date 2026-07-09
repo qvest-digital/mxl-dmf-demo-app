@@ -51,6 +51,12 @@ spec:
           # generator's timeline.
           args:
             - |
+              # Brace-free shell variables on purpose. The demo-app Kustomization
+              # runs Flux postBuild substitution, which rewrites every braced
+              # dollar-expression it cannot resolve from cluster-config into an
+              # empty string — it silently gutted this script's own TARGET and
+              # passphrase, and ffmpeg then dialled srt:// with no host. The
+              # braceless form is passed through untouched.
               set -u
               FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
               while true; do
@@ -59,8 +65,8 @@ spec:
                   -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60" \
                   -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
                   -b:v 3000k -g 30 \
-                  -f mpegts "srt://${TARGET}?mode=caller&pbkeylen=16&passphrase=${SRT_PASSPHRASE}" || true
-                echo "feed to ${TARGET} ended, reconnecting in 5s"
+                  -f mpegts "srt://$TARGET?mode=caller&pbkeylen=16&passphrase=$SRT_PASSPHRASE" || true
+                echo "feed to $TARGET ended, reconnecting in 5s"
                 sleep 5
               done
           resources:
@@ -103,6 +109,12 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
+              # Brace-free shell variables on purpose. The demo-app Kustomization
+              # runs Flux postBuild substitution, which rewrites every braced
+              # dollar-expression it cannot resolve from cluster-config into an
+              # empty string — it silently gutted this script's own TARGET and
+              # passphrase, and ffmpeg then dialled srt:// with no host. The
+              # braceless form is passed through untouched.
               set -u
               FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
               while true; do
@@ -111,8 +123,8 @@ spec:
                   -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60" \
                   -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
                   -b:v 3000k -g 30 \
-                  -f mpegts "srt://${TARGET}?mode=caller&pbkeylen=16&passphrase=${SRT_PASSPHRASE}" || true
-                echo "feed to ${TARGET} ended, reconnecting in 5s"
+                  -f mpegts "srt://$TARGET?mode=caller&pbkeylen=16&passphrase=$SRT_PASSPHRASE" || true
+                echo "feed to $TARGET ended, reconnecting in 5s"
                 sleep 5
               done
           resources:
