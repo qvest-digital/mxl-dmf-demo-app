@@ -12,6 +12,7 @@ resources:
   - metrics-aggregator.yaml
   - txdarwin-output-viewer.yaml
   - mxl-receivers.yaml
+  - test-sources.yaml
 
 # Hash-suffixed configmaps: any change to a file under config/ produces
 # a new ConfigMap name, kustomize rewrites the volume reference in the

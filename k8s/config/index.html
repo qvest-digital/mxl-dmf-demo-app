@@ -169,6 +169,22 @@
   .txbtn.active { background: var(--qv-orange); color: #fff; }
   .tx-video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--qv-radius); display: block; }
 
+  /* Booking demo: the two per-booking txDarwin instances side by side, so the
+     hand-over at a booking boundary is visible — B's tile comes up during A's
+     air time (pre-roll), A's goes black after its post-roll. */
+  .bk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .bk-grid { grid-template-columns: 1fr; } }
+  .bk-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .bk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .bk-title { font-size: 14px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+  .bk-sub { font-size: 12px; opacity: .55; }
+  .bk-badge {
+    font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    padding: .3em .8em; border-radius: var(--qv-radius-pill); background: #ddd; color: #555;
+  }
+  .bk-badge.live { background: var(--qv-lime); color: var(--qv-ink); }
+  .bk-video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--qv-radius); display: block; }
+
   /* Loading overlay: shown over each video until it starts playing (WebRTC ICE
      handshake takes a moment; on fallback, HLS buffering does too). */
   .vwrap { position: relative; min-width: 0; }
@@ -202,6 +218,7 @@
     <button class="tab active" data-tab="mv">Multiviewer</button>
     <button class="tab" data-tab="tx">txDarwin / SRT</button>
     <button class="tab" data-tab="cp">Composite</button>
+    <button class="tab" data-tab="bk">Booking</button>
   </nav>
 
   <div id="pane-mv" class="pane active">
@@ -252,6 +269,33 @@
         <button class="txbtn" data-path="txdarwin-ac3demo-out">Booking Out (ac3demo)</button>
       </div>
       <video id="txv" class="tx-video" muted autoplay playsinline></video>
+    </main>
+  </div>
+
+  <div id="pane-bk" class="pane">
+    <main class="tx-main">
+      <div class="bk-grid">
+        <div class="bk-tile">
+          <div class="bk-head">
+            <div>
+              <div class="bk-title">Template 1 Out</div>
+              <div class="bk-sub">instance t1 &middot; 2 SRT sources</div>
+            </div>
+            <span class="bk-badge" id="bk-badge-t1">offline</span>
+          </div>
+          <video id="bkv-t1" class="bk-video" muted autoplay playsinline></video>
+        </div>
+        <div class="bk-tile">
+          <div class="bk-head">
+            <div>
+              <div class="bk-title">Template 2 Out</div>
+              <div class="bk-sub">instance t2 &middot; 3 SRT sources</div>
+            </div>
+            <span class="bk-badge" id="bk-badge-t2">offline</span>
+          </div>
+          <video id="bkv-t2" class="bk-video" muted autoplay playsinline></video>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -528,14 +572,53 @@
       // HLS/MSE handles it fine. So the mosaic plays over HLS, not WHEP. It's a
       // latency-tolerant overview anyway; the live per-flow tiles stay WebRTC.
       function cpLoad(){ hlsPlay('composite', cpv); }
+
+      // Booking tiles. Both instances are deployed and torn down by MediaOps
+      // bookings, so a tile is black most of the time and its path 404s while
+      // the instance is gone. Retry on a timer and drive the badge off actual
+      // frame progress (currentTime advancing) rather than the connection
+      // state: WebRTC stays "connected" after the publisher disappears, which
+      // would otherwise report a torn-down instance as live.
+      var bkStarted=false;
+      var bkTiles=[
+        { path:'txdarwin-t1-out', video:'bkv-t1', badge:'bk-badge-t1' },
+        { path:'txdarwin-t2-out', video:'bkv-t2', badge:'bk-badge-t2' }
+      ];
+      function bkStart(){
+        bkTiles.forEach(function(t){
+          var v=document.getElementById(t.video), badge=document.getElementById(t.badge);
+          var pc=null, last=-1, live=false;
+          function connect(){
+            try{pc&&pc.close();}catch(e){} pc=null; try{v.srcObject=null;}catch(e){}
+            pc=whep(t.path, v, function(){ hlsPlay(t.path, v); });
+          }
+          function setLive(on){
+            if (on===live) return;
+            live=on;
+            badge.classList.toggle('live', on);
+            badge.textContent = on ? 'live' : 'offline';
+          }
+          connect();
+          setInterval(function(){
+            var progressed = v.currentTime > last + 0.01;
+            last = v.currentTime;
+            setLive(progressed);
+            // Nothing arriving: the instance is down, or came back on a new
+            // WebRTC session. Reconnecting is cheap and idempotent.
+            if (!progressed) connect();
+          }, 4000);
+        });
+      }
+
       document.querySelectorAll('.tab').forEach(function(t){
         t.addEventListener('click', function(){
           var id=t.getAttribute('data-tab');
           document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('active'); });
           t.classList.add('active');
-          ['mv','tx','cp'].forEach(function(k){ document.getElementById('pane-'+k).classList.toggle('active', id===k); });
+          ['mv','tx','cp','bk'].forEach(function(k){ document.getElementById('pane-'+k).classList.toggle('active', id===k); });
           if (id==='tx' && !txStarted){ txStarted=true; txLoad(); }
           if (id==='cp' && !cpStarted){ cpStarted=true; cpLoad(); }
+          if (id==='bk' && !bkStarted){ bkStarted=true; bkStart(); }
         });
       });
     })();
