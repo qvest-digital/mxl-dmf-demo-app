@@ -129,3 +129,31 @@ spec:
   podSelector:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
+---
+# Sources 2 and 3 (DMF-298/303 templates). Source 1 has had a receiver all
+# along, which is why a txDarwin instance on the other node could read it: the
+# receiver is what makes the mxl-k8s operator mirror a flow cross-node. Without
+# these two, template-2's first flow (source 2) never reaches an instance that
+# lands away from the bridges — seen live: reader up, zero bitrate, no mirror
+# CR for b2…002 while b2…001 had one and flowed.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: srt-source-2
+spec:
+  flowID: "b2000000-0000-0000-0000-000000000002"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: srt-source-3
+spec:
+  flowID: "b2000000-0000-0000-0000-000000000003"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
