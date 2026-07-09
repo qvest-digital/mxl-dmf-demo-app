@@ -43,11 +43,6 @@ spec:
         - name: ffmpeg
           image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
           env:
-            - name: SRT_PASSPHRASE
-              valueFrom:
-                secretKeyRef:
-                  name: srt-mxl-bridge-secret
-                  key: SRT_PASSPHRASE
             - name: TARGET
               value: "srt-mxl-bridge-instance-2:9001"
             - name: LABEL
@@ -63,6 +58,11 @@ spec:
               # braceless form is passed through untouched.
               set -u
               FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+              until [ -s /secrets/SRT_PASSPHRASE ]; do
+                echo "warte auf srt-mxl-bridge-secret (kommt mit srt-ingest)"
+                sleep 10
+              done
+              SRT_PASSPHRASE=$(cat /secrets/SRT_PASSPHRASE)
               while true; do
                 ffmpeg -hide_banner -loglevel warning -re \
                   -f lavfi -i "mandelbrot=size=1296x720:rate=30" \
@@ -81,6 +81,21 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+          volumeMounts:
+            - name: bridge-secret
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        # optional: the secret belongs to srt-ingest, which Flux deploys only
+        # after demo-app reports healthy. A hard env reference here dead-locks a
+        # fresh cluster (CreateContainerConfigError -> never Ready -> demo-app
+        # never healthy -> srt-ingest never deploys the secret). An optional
+        # volume lets the pod start; kubelet materializes the key when the
+        # secret appears, and the loop below picks it up.
+        - name: bridge-secret
+          secret:
+            secretName: srt-mxl-bridge-secret
+            optional: true
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -102,11 +117,6 @@ spec:
         - name: ffmpeg
           image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
           env:
-            - name: SRT_PASSPHRASE
-              valueFrom:
-                secretKeyRef:
-                  name: srt-mxl-bridge-secret
-                  key: SRT_PASSPHRASE
             - name: TARGET
               value: "srt-mxl-bridge-instance-3:9002"
             - name: LABEL
@@ -122,6 +132,11 @@ spec:
               # braceless form is passed through untouched.
               set -u
               FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+              until [ -s /secrets/SRT_PASSPHRASE ]; do
+                echo "warte auf srt-mxl-bridge-secret (kommt mit srt-ingest)"
+                sleep 10
+              done
+              SRT_PASSPHRASE=$(cat /secrets/SRT_PASSPHRASE)
               while true; do
                 ffmpeg -hide_banner -loglevel warning -re \
                   -f lavfi -i "smptebars=size=1296x720:rate=30" \
@@ -140,3 +155,12 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+          volumeMounts:
+            - name: bridge-secret
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        - name: bridge-secret
+          secret:
+            secretName: srt-mxl-bridge-secret
+            optional: true
