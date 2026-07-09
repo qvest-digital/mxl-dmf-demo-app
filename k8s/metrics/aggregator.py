@@ -411,12 +411,12 @@ def booking():
 # containers created, four started, per pod. On a stage that is noise. Keep the
 # beats an audience can follow, and say them in the language of the schedule.
 STORY = {
-    "Scheduled":         ("deploy",   "Instanz {obj} eingeplant"),
-    "ScalingReplicaSet": ("deploy",   "Workload wird hochgefahren"),
-    "InstallSucceeded":  ("live",     "Instanz {obj} installiert"),
-    "UpgradeSucceeded":  ("live",     "Instanz {obj} aktualisiert"),
-    "Killing":           ("teardown", "Instanz {obj} wird abgeräumt"),
-    "UninstallSucceeded": ("teardown", "Instanz {obj} entfernt"),
+    "Scheduled":         ("deploy",   "Instance {obj} scheduled"),
+    "ScalingReplicaSet": ("deploy",   "Workload scaling up"),
+    "InstallSucceeded":  ("live",     "Instance {obj} installed"),
+    "UpgradeSucceeded":  ("live",     "Instance {obj} upgraded"),
+    "Killing":           ("teardown", "Instance {obj} being reclaimed"),
+    "UninstallSucceeded": ("teardown", "Instance {obj} removed"),
 }
 
 

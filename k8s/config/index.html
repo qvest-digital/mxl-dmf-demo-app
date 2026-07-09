@@ -317,7 +317,7 @@
         <div class="bk-tile" id="bk-card-t1">
           <div class="bk-head">
             <div>
-              <div class="bk-title">Template 1 &middot; Instanz t1</div>
+              <div class="bk-title">Template 1 &middot; Instance t1</div>
               <div class="bk-sub" id="bk-sub-t1">&mdash;</div>
             </div>
             <span class="bk-badge" id="bk-badge-t1">offline</span>
@@ -330,7 +330,7 @@
         <div class="bk-tile" id="bk-card-t2">
           <div class="bk-head">
             <div>
-              <div class="bk-title">Template 2 &middot; Instanz t2</div>
+              <div class="bk-title">Template 2 &middot; Instance t2</div>
               <div class="bk-sub" id="bk-sub-t2">&mdash;</div>
             </div>
             <span class="bk-badge" id="bk-badge-t2">offline</span>
@@ -344,13 +344,13 @@
 
       <aside class="bk-right">
         <div class="panel">
-          <h2>Sendeplan</h2>
+          <h2>Schedule</h2>
           <div class="bk-phases" id="bk-phases"></div>
           <div class="bk-chain" id="bk-chain"></div>
-          <div class="bk-state" id="bk-state">warte auf Buchung&hellip;</div>
+          <div class="bk-state" id="bk-state">waiting for a booking&hellip;</div>
         </div>
         <div class="panel bk-log-panel">
-          <h2>Was gerade passiert</h2>
+          <h2>What's happening</h2>
           <ol class="bk-log" id="bk-log"></ol>
         </div>
       </aside>
@@ -646,7 +646,7 @@
       // torn-down instance would otherwise still read as live.
       var bkStarted=false;
       var BK=[{name:'t1',path:'txdarwin-t1-out'},{name:'t2',path:'txdarwin-t2-out'}];
-      var PHASES=[['booked','Gebucht'],['deploying','Pre-Roll'],['on-air','Auf Sendung'],['post-roll','Post-Roll'],['reclaimed','Abgeräumt']];
+      var PHASES=[['booked','Booked'],['deploying','Pre-Roll'],['on-air','On Air'],['post-roll','Post-Roll'],['reclaimed','Reclaimed']];
       var bkLive={t1:false,t2:false};
 
       function bkVideo(t){
@@ -674,7 +674,7 @@
         var live = inst.liveReaderFlow || inst.readerFlow;
         box.innerHTML = inst.sources.map(function(f,i){
           var on = f===live;
-          return '<span class="bk-chip'+(on?' active':'')+'">SRT-'+(i+1)+(on?' &bull; liest':'')+'</span>';
+          return '<span class="bk-chip'+(on?' active':'')+'">SRT-'+(i+1)+(on?' &bull; reading':'')+'</span>';
         }).join('');
       }
 
@@ -698,7 +698,7 @@
         var frames = bkLive.t1 || bkLive.t2;
         var st = function(ok, warn){ return ok ? 'ok' : (warn ? 'warn' : ''); };
         var nodes=[
-          ['SRT-Quelle', st(frames, !!onair)],
+          ['SRT source', st(frames, !!onair)],
           ['Bridge', st(frames, !!onair)],
           ['MXL-Flow', st(!!onair, false)],
           ['Reader', st(!!onair && frames, !!onair)],
@@ -713,14 +713,14 @@
 
       function bkRenderState(d){
         var box=document.getElementById('bk-state');
-        if (!d.instances.length){ box.textContent='keine Instanz deployt \u2014 warte auf Pre-Roll'; return; }
+        if (!d.instances.length){ box.textContent='no instance deployed \u2014 waiting for pre-roll'; return; }
         box.innerHTML = d.instances.map(function(i){
-          var pod = i.pod ? (i.pod.deleting ? 'wird beendet' : i.pod.phase) : '\u2014';
+          var pod = i.pod ? (i.pod.deleting ? 'terminating' : i.pod.phase) : '\u2014';
           return '<div class="kvline">'
-            + '<div>Instanz</div><div><b>'+i.name+'</b> ('+(i.type||'?')+')</div>'
+            + '<div>Instance</div><div><b>'+i.name+'</b> ('+(i.type||'?')+')</div>'
             + '<div>Phase</div><div>'+(i.phase||'\u2014')+'</div>'
             + '<div>Pod</div><div>'+pod+'</div>'
-            + '<div>Quellen</div><div>'+(i.sources?i.sources.length:0)+'</div>'
+            + '<div>Sources</div><div>'+(i.sources?i.sources.length:0)+'</div>'
             + '</div>';
         }).join('<hr style="border:none;border-top:1px solid rgba(0,0,0,.08);margin:6px 0">');
       }
@@ -740,11 +740,11 @@
             var inst = d.instances.filter(function(i){ return i.name===t.name; })[0];
             bkChips(t.name, inst);
             var sub=document.getElementById('bk-sub-'+t.name), badge=document.getElementById('bk-badge-'+t.name);
-            sub.textContent = inst ? ((inst.sources||[]).length + ' SRT-Quellen \u00b7 ' + (inst.type||'')) : 'nicht deployt';
+            sub.textContent = inst ? ((inst.sources||[]).length + ' SRT sources \u00b7 ' + (inst.type||'')) : 'not deployed';
             // Deployed but no frames yet (image pull, reader starting): say so,
             // instead of showing "offline" next to a running pod.
             if (inst && inst.replicas && !badge.classList.contains('live')){
-              badge.textContent='fährt hoch'; badge.classList.add('pending');
+              badge.textContent='deploying'; badge.classList.add('pending');
             } else if (!inst || !inst.replicas){
               badge.classList.remove('pending');
             }
