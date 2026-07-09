@@ -5,15 +5,16 @@
 # different pictures. These generators stand in as playout sources: the
 # camera keeps ingest-1, they fill ingest-2 and ingest-3.
 #
-# They publish to their bridge over the node's loopback, not through a Service.
-# The bridges run with hostNetwork, so a ClusterIP in front of them puts
-# kube-proxy's UDP NAT in the path — and its conntrack entries expire while an
-# SRT session is idle in one direction, tearing the feed down every few seconds
-# ("Input/output error", endless reconnects, a frozen last frame in the flow).
-# Sharing the bridge's network namespace removes the translation entirely.
+# They publish through the bridges' Services. Going over the node's loopback
+# instead (hostNetwork + podAffinity on the bridge's node) would avoid
+# kube-proxy's UDP NAT, whose conntrack entries expire while an SRT session is
+# quiet in one direction and tear the feed down every few seconds. But it
+# deadlocks the cluster: srt-ingest waits for demo-app to be healthy, demo-app's
+# health check waits for these pods, and these pods would wait for a bridge that
+# srt-ingest has not deployed yet. Nothing ever schedules.
 #
-# A public NLB would work too, but the round trip over the internet makes the
-# reader flap: the bridge's MXL ring holds ~6 grains (~200 ms).
+# The reconnect loop below rides out the NAT timeouts. A real fix belongs next
+# to the bridges, not here — see DMF-426.
 #
 # 1296x720 is deliberate: mediamtx's v210 unpacker requires the width to be
 # divisible by 6, so 1280x720 is rejected ("width must be divisible by 6").
@@ -38,18 +39,6 @@ spec:
     metadata:
       labels: *labels2
     spec:
-      # Same node as this source's bridge, and its network namespace: the SRT
-      # caller then dials 127.0.0.1 and no NAT sits in between.
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: srt-mxl-bridge
-                  app.kubernetes.io/instance: instance-2
-              topologyKey: kubernetes.io/hostname
       containers:
         - name: ffmpeg
           image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
@@ -60,7 +49,7 @@ spec:
                   name: srt-mxl-bridge-secret
                   key: SRT_PASSPHRASE
             - name: TARGET
-              value: "127.0.0.1:9001"
+              value: "srt-mxl-bridge-instance-2:9001"
             - name: LABEL
               value: "ZUSPIELER 2"
           command: ["/bin/sh", "-c"]
@@ -109,18 +98,6 @@ spec:
     metadata:
       labels: *labels3
     spec:
-      # Same node as this source's bridge, and its network namespace: the SRT
-      # caller then dials 127.0.0.1 and no NAT sits in between.
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: srt-mxl-bridge
-                  app.kubernetes.io/instance: instance-3
-              topologyKey: kubernetes.io/hostname
       containers:
         - name: ffmpeg
           image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
@@ -131,7 +108,7 @@ spec:
                   name: srt-mxl-bridge-secret
                   key: SRT_PASSPHRASE
             - name: TARGET
-              value: "127.0.0.1:9002"
+              value: "srt-mxl-bridge-instance-3:9002"
             - name: LABEL
               value: "ZUSPIELER 3"
           command: ["/bin/sh", "-c"]
