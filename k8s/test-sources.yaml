@@ -12,9 +12,10 @@
 # 1296x720 is deliberate: mediamtx's v210 unpacker requires the width to be
 # divisible by 6, so 1280x720 is rejected ("width must be divisible by 6").
 #
-# The SRT URL carries the passphrase, so it is assembled from the mounted
-# secret inside the container — never in the pod spec, where it would show up
-# in `kubectl get deploy -o yaml` for anyone with read access.
+# The passphrase is a libsrt option, not a URL query parameter: ffmpeg echoes
+# the whole output URL on any connection error, so a passphrase carried in the
+# URL lands in the pod log. It is read from the mounted secret and never
+# appears in the pod spec either.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -65,7 +66,8 @@ spec:
                   -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60" \
                   -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
                   -b:v 3000k -g 30 \
-                  -f mpegts "srt://$TARGET?mode=caller&pbkeylen=16&passphrase=$SRT_PASSPHRASE" || true
+                  -mode caller -pbkeylen 16 -passphrase "$SRT_PASSPHRASE" \
+                  -f mpegts "srt://$TARGET" || true
                 echo "feed to $TARGET ended, reconnecting in 5s"
                 sleep 5
               done
@@ -123,7 +125,8 @@ spec:
                   -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60" \
                   -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
                   -b:v 3000k -g 30 \
-                  -f mpegts "srt://$TARGET?mode=caller&pbkeylen=16&passphrase=$SRT_PASSPHRASE" || true
+                  -mode caller -pbkeylen 16 -passphrase "$SRT_PASSPHRASE" \
+                  -f mpegts "srt://$TARGET" || true
                 echo "feed to $TARGET ended, reconnecting in 5s"
                 sleep 5
               done
