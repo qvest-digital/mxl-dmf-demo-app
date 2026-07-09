@@ -39,6 +39,21 @@ spec:
     metadata:
       labels: *labels2
     spec:
+      # Soft affinity: UDP through a Service to a hostNetwork bridge does not
+      # work across nodes at all (seen live — the same generator works from the
+      # bridge's node and gets Input/output error from the other). Preferred,
+      # not required: on a fresh cluster the bridge does not exist yet, and a
+      # hard rule would deadlock demo-app's health against srt-ingest again.
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: srt-mxl-bridge
+                    app.kubernetes.io/instance: instance-2
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: ffmpeg
           image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
@@ -113,6 +128,21 @@ spec:
     metadata:
       labels: *labels3
     spec:
+      # Soft affinity: UDP through a Service to a hostNetwork bridge does not
+      # work across nodes at all (seen live — the same generator works from the
+      # bridge's node and gets Input/output error from the other). Preferred,
+      # not required: on a fresh cluster the bridge does not exist yet, and a
+      # hard rule would deadlock demo-app's health against srt-ingest again.
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: srt-mxl-bridge
+                    app.kubernetes.io/instance: instance-3
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: ffmpeg
           image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
