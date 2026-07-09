@@ -15,7 +15,7 @@
 #
 # Runs in-cluster with a scoped ServiceAccount; talks to the API server with
 # the mounted SA token + CA. No pip deps so it runs on stock python:3-slim.
-import json, os, ssl, urllib.request, urllib.error
+import base64, json, os, ssl, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 def _own_namespace():
@@ -261,6 +261,8 @@ def build():
 # instance's *wired* sources — that is what tells template-1 (2 sources) from
 # template-2 (3), and it lives in the HelmRelease values, not in the CR.
 BOOKING_NS = os.environ.get("BOOKING_NS", "txdarwin")
+# txDarwin serves its API over a self-signed cert on the pod itself.
+INSECURE = ssl._create_unverified_context()
 
 
 def _age(ts):
@@ -280,6 +282,44 @@ def _cond(obj, typ):
         if c.get("type") == typ:
             return c
     return {}
+
+
+def darwin_reader_flow(name):
+    """The flow the instance is reading *right now*.
+
+    The HelmRelease values only say where the reader was told to start; an
+    operator can switch it in txDarwin's own UI, and the showcase's whole point
+    is that this switch is visible. Ask the instance instead. Self-signed cert,
+    chart-default credentials, short timeout — a slow or absent instance must
+    not stall the screen.
+    """
+    try:
+        req = urllib.request.Request(f"https://{name}:8002/modules/mod-100000001")
+        req.add_header("Authorization", "Basic " + base64.b64encode(b"admin:admin").decode())
+        with urllib.request.urlopen(req, context=INSECURE, timeout=2) as r:
+            return (json.load(r).get("options", {}) or {}).get("flowId")
+    except Exception:
+        return None
+
+
+def phase_of(inst, hr_exists, replicas, pod):
+    """Where the booking stands, in the words the schedule uses.
+
+    Derived rather than reported: nothing in the cluster knows about pre-roll.
+    The CR is the booking's intent, the pod is the workload, and the release
+    outlives both under a ScaleToZero reclaim.
+    """
+    if inst and not (pod and pod.get("phase") == "Running"):
+        return "deploying"          # pre-roll: intent exists, workload coming up
+    if inst and pod and pod.get("phase") == "Running" and not pod.get("deleting"):
+        return "on-air"
+    if not inst and pod:
+        return "post-roll"          # CR pruned, workload winding down
+    if not inst and hr_exists and replicas == 0:
+        return "reclaimed"
+    if not inst and not hr_exists:
+        return "idle"
+    return "unknown"
 
 
 def booking():
@@ -321,6 +361,8 @@ def booking():
             # sources[0] is where the chart starts the reader.
             "sources": sources,
             "readerFlow": sources[0] if sources else None,
+            # What it was configured to read vs. what it actually reads.
+            "liveReaderFlow": None,
             "outFlow": flow.get("writerFlowId") or None,
             "pod": None if not pod else {
                 "name": pod["metadata"]["name"],
@@ -330,6 +372,16 @@ def booking():
                 "deleting": bool(pod["metadata"].get("deletionTimestamp")),
             },
         })
+
+    for row, name in ((r, r["name"]) for r in out):
+        row["phase"] = phase_of(
+            next((i for i in instances if i["metadata"]["name"] == name), None),
+            name in hr_by_name, row["replicas"], row["pod"],
+        )
+        if row["phase"] == "on-air":
+            row["liveReaderFlow"] = darwin_reader_flow(name) or row["readerFlow"]
+        else:
+            row["liveReaderFlow"] = row["readerFlow"]
 
     # Events carry the visible lifecycle ("Scheduled", "Pulled", "Started",
     # "Killing"). Newest last so the client can append without re-sorting.
@@ -345,7 +397,34 @@ def booking():
         key=lambda x: x["at"] or "",
     )[-25:]
 
-    return {"namespace": BOOKING_NS, "instances": out, "events": events}
+    return {"namespace": BOOKING_NS, "instances": out,
+            "events": events, "story": storyline(events)}
+
+
+# Kubernetes narrates its own plumbing: four container images pulled, four
+# containers created, four started, per pod. On a stage that is noise. Keep the
+# beats an audience can follow, and say them in the language of the schedule.
+STORY = {
+    "Scheduled":         ("deploy",   "Instanz {obj} eingeplant"),
+    "ScalingReplicaSet": ("deploy",   "Workload wird hochgefahren"),
+    "InstallSucceeded":  ("live",     "Instanz {obj} installiert"),
+    "UpgradeSucceeded":  ("live",     "Instanz {obj} aktualisiert"),
+    "Killing":           ("teardown", "Instanz {obj} wird abgeräumt"),
+    "UninstallSucceeded": ("teardown", "Instanz {obj} entfernt"),
+}
+
+
+def storyline(events):
+    """The five beats that matter, newest last, one line each."""
+    out = []
+    for e in events:
+        beat = STORY.get(e.get("reason"))
+        if not beat:
+            continue
+        kind, text = beat
+        obj = (e.get("object") or "").split("-")[0]
+        out.append({"at": e["at"], "kind": kind, "text": text.format(obj=obj)})
+    return out[-12:]
 
 
 class H(BaseHTTPRequestHandler):
