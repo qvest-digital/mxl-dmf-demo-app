@@ -294,15 +294,16 @@ def darwin_reader_flow(name):
     not stall the screen.
     """
     try:
-        # Fully qualified: this aggregator runs in the demo namespace, the
-        # instance Services live in the booking namespace. The short name never
-        # resolves, the lookup fails silently, and the chip freezes on the
-        # deployed start flow — which is exactly the bug this endpoint exists
-        # to avoid.
-        req = urllib.request.Request(f"https://{name}.{BOOKING_NS}:8002/modules/mod-100000001")
+        # Fully qualified (this aggregator runs in the demo namespace, the
+        # instance Services in the booking one) and against the LIST endpoint:
+        # this API version 404s on /modules/<id>, it only serves the
+        # collection. Pick the reader out of it.
+        req = urllib.request.Request(f"https://{name}.{BOOKING_NS}:8002/modules")
         req.add_header("Authorization", "Basic " + base64.b64encode(b"admin:admin").decode())
         with urllib.request.urlopen(req, context=INSECURE, timeout=2) as r:
-            return (json.load(r).get("options", {}) or {}).get("flowId")
+            mods = (json.load(r) or {}).get("data") or []
+        reader = next((m for m in mods if m.get("type") == "MxlReader"), None)
+        return ((reader or {}).get("options") or {}).get("flowId")
     except Exception:
         return None
 
