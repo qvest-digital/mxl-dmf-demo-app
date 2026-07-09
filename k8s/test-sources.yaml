@@ -1,0 +1,124 @@
+# Cluster-internal SRT test sources for the DMF-298/303 showcase (DMF-426).
+#
+# The venue has one physical camera, but template-2 wires three SRT sources
+# and the booking demo needs the two txDarwin instances to show visibly
+# different pictures. These generators stand in as playout sources: the
+# camera keeps ingest-1, they fill ingest-2 and ingest-3.
+#
+# They publish into the per-instance srt-mxl-bridge Services rather than the
+# public NLBs — the bridge's MXL ring holds ~6 grains (~200 ms), so a feed
+# coming over the internet makes the reader flap between TooEarly/TooLate.
+#
+# 1296x720 is deliberate: mediamtx's v210 unpacker requires the width to be
+# divisible by 6, so 1280x720 is rejected ("width must be divisible by 6").
+#
+# The SRT URL carries the passphrase, so it is assembled from the mounted
+# secret inside the container — never in the pod spec, where it would show up
+# in `kubectl get deploy -o yaml` for anyone with read access.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srt-test-source-2
+  labels: &labels2
+    app.kubernetes.io/name: srt-test-source-2
+    app.kubernetes.io/part-of: demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: srt-test-source-2
+  template:
+    metadata:
+      labels: *labels2
+    spec:
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
+          env:
+            - name: SRT_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: srt-mxl-bridge-secret
+                  key: SRT_PASSPHRASE
+            - name: TARGET
+              value: "srt-mxl-bridge-instance-2:9001"
+            - name: LABEL
+              value: "ZUSPIELER 2"
+          command: ["/bin/sh", "-c"]
+          # The bridge only accepts callers once its pipeline is up, and it
+          # drops them when it wedges (see DMF-364 family) — reconnect in a
+          # loop instead of relying on pod restarts, which would also lose the
+          # generator's timeline.
+          args:
+            - |
+              set -u
+              FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+              while true; do
+                ffmpeg -hide_banner -loglevel warning -re \
+                  -f lavfi -i "testsrc2=size=1296x720:rate=30" \
+                  -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60" \
+                  -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
+                  -b:v 3000k -g 30 \
+                  -f mpegts "srt://${TARGET}?mode=caller&pbkeylen=16&passphrase=${SRT_PASSPHRASE}" || true
+                echo "feed to ${TARGET} ended, reconnecting in 5s"
+                sleep 5
+              done
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srt-test-source-3
+  labels: &labels3
+    app.kubernetes.io/name: srt-test-source-3
+    app.kubernetes.io/part-of: demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: srt-test-source-3
+  template:
+    metadata:
+      labels: *labels3
+    spec:
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
+          env:
+            - name: SRT_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: srt-mxl-bridge-secret
+                  key: SRT_PASSPHRASE
+            - name: TARGET
+              value: "srt-mxl-bridge-instance-3:9002"
+            - name: LABEL
+              value: "ZUSPIELER 3"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+              while true; do
+                ffmpeg -hide_banner -loglevel warning -re \
+                  -f lavfi -i "smptebars=size=1296x720:rate=30" \
+                  -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60" \
+                  -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
+                  -b:v 3000k -g 30 \
+                  -f mpegts "srt://${TARGET}?mode=caller&pbkeylen=16&passphrase=${SRT_PASSPHRASE}" || true
+                echo "feed to ${TARGET} ended, reconnecting in 5s"
+                sleep 5
+              done
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

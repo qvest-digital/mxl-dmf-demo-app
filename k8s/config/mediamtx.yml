@@ -129,6 +129,28 @@ paths:
     mxlH264Bitrate: 5000000
     mxlH264IDRPeriod: 30
 
+  # DMF-298/303 booking demo: outputs of the two per-booking instances the
+  # MediaOps templates deploy ("t1" = template-1 / 2 sources, "t2" =
+  # template-2 / 3 sources). Same deterministic writer-flow convention as
+  # ac3demo above, so these ids survive re-deploys. Both are always-on: the
+  # tiles must go black on teardown rather than keep an on-demand source
+  # alive, that black frame IS the demo's teardown evidence.
+  txdarwin-t1-out:
+    source: mxl:///run/mxl/domain/c3000000-0000-0000-0000-e5353879bd69
+    sourceOnDemand: false
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
+    mxlH264Bitrate: 5000000
+    mxlH264IDRPeriod: 30
+
+  txdarwin-t2-out:
+    source: mxl:///run/mxl/domain/c3000000-0000-0000-0000-2a5bd02710e9
+    sourceOnDemand: false
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
+    mxlH264Bitrate: 5000000
+    mxlH264IDRPeriod: 30
+
   srt-camera:
     source: mxl:///run/mxl/domain/b2000000-0000-0000-0000-000000000001
     sourceOnDemand: false

@@ -102,3 +102,30 @@ spec:
   podSelector:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
+---
+# DMF-298/303 booking demo: writer outputs of the per-booking instances the
+# MediaOps templates deploy ("t1"/"t2"). Deterministic ids as above, so the
+# receivers stay valid across every re-deploy of those bookings. Without
+# these the intent-shim never lets mediamtx open the flow, and the demo tiles
+# stay black even while the instance is up.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: txdarwin-t1-output
+spec:
+  flowID: "c3000000-0000-0000-0000-e5353879bd69"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: txdarwin-t2-output
+spec:
+  flowID: "c3000000-0000-0000-0000-2a5bd02710e9"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
