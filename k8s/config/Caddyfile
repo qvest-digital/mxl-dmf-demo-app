@@ -12,9 +12,31 @@
     respond "ok" 200
   }
 
+  # Per-flow RDMA-delivery metrics from the compositor's stats server.
+  # Same-origin so the multiviewer page can poll it without CORS hassle.
+  handle /stats.json {
+    reverse_proxy http://composite:9090
+  }
+
+  # Detailed per-flow metrics (writer + compositor + gateway/mirror) and the
+  # flow-kill control, served by the demo-metrics aggregator.
+  handle /api/* {
+    reverse_proxy http://demo-metrics:8088
+  }
+
   handle_path /hls/* {
     reverse_proxy http://localhost:8888 {
       header_down Location "^/(.*)$" "/hls/$1"
+    }
+  }
+
+  # WebRTC/WHEP signaling. mediamtx serves it on :8889 at /<path>/whep; the
+  # frontend posts to /webrtc/<path>/whep and caddy strips the prefix. Rewrite
+  # the Location header so the WHEP session resource stays under /webrtc.
+  # (ICE media does NOT go through here — that's the UDP LoadBalancer.)
+  handle_path /webrtc/* {
+    reverse_proxy http://localhost:8889 {
+      header_down Location "^/(.*)$" "/webrtc/$1"
     }
   }
 

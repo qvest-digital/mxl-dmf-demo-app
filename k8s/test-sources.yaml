@@ -1,0 +1,196 @@
+# Cluster-internal SRT test sources for the DMF-298/303 showcase (DMF-426).
+#
+# The venue has one physical camera, but template-2 wires three SRT sources
+# and the booking demo needs the two txDarwin instances to show visibly
+# different pictures. These generators stand in as playout sources: the
+# camera keeps ingest-1, they fill ingest-2 and ingest-3.
+#
+# They publish through the bridges' Services. Going over the node's loopback
+# instead (hostNetwork + podAffinity on the bridge's node) would avoid
+# kube-proxy's UDP NAT, whose conntrack entries expire while an SRT session is
+# quiet in one direction and tear the feed down every few seconds. But it
+# deadlocks the cluster: srt-ingest waits for demo-app to be healthy, demo-app's
+# health check waits for these pods, and these pods would wait for a bridge that
+# srt-ingest has not deployed yet. Nothing ever schedules.
+#
+# The reconnect loop below rides out the NAT timeouts. A real fix belongs next
+# to the bridges, not here — see DMF-426.
+#
+# 1296x720 is deliberate: mediamtx's v210 unpacker requires the width to be
+# divisible by 6, so 1280x720 is rejected ("width must be divisible by 6").
+#
+# The passphrase is a libsrt option, not a URL query parameter: ffmpeg echoes
+# the whole output URL on any connection error, so a passphrase carried in the
+# URL lands in the pod log. It is read from the mounted secret and never
+# appears in the pod spec either.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srt-test-source-2
+  labels: &labels2
+    app.kubernetes.io/name: srt-test-source-2
+    app.kubernetes.io/part-of: demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: srt-test-source-2
+  template:
+    metadata:
+      labels: *labels2
+    spec:
+      # Soft affinity: UDP through a Service to a hostNetwork bridge does not
+      # work across nodes at all (seen live — the same generator works from the
+      # bridge's node and gets Input/output error from the other). Preferred,
+      # not required: on a fresh cluster the bridge does not exist yet, and a
+      # hard rule would deadlock demo-app's health against srt-ingest again.
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: srt-mxl-bridge
+                    app.kubernetes.io/instance: instance-2
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
+          env:
+            - name: TARGET
+              value: "srt-mxl-bridge-instance-2:9001"
+            - name: LABEL
+              value: "ZUSPIELER 2"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Brace-free shell variables on purpose. The demo-app Kustomization
+              # runs Flux postBuild substitution, which rewrites every braced
+              # dollar-expression it cannot resolve from cluster-config into an
+              # empty string — it silently gutted this script's own TARGET and
+              # passphrase, and ffmpeg then dialled srt:// with no host. The
+              # braceless form is passed through untouched.
+              set -u
+              FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+              until [ -s /secrets/SRT_PASSPHRASE ]; do
+                echo "warte auf srt-mxl-bridge-secret (kommt mit srt-ingest)"
+                sleep 10
+              done
+              SRT_PASSPHRASE=$(cat /secrets/SRT_PASSPHRASE)
+              while true; do
+                ffmpeg -hide_banner -loglevel warning -re \
+                  -f lavfi -i "mandelbrot=size=1296x720:rate=30" \
+                  -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60,drawtext=fontfile=$FONT:text='%{localtime\:%T}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-130" \
+                  -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
+                  -b:v 3000k -g 30 \
+                  -mode caller -pbkeylen 16 -passphrase "$SRT_PASSPHRASE" \
+                  -f mpegts "srt://$TARGET" || true
+                echo "feed to $TARGET ended, reconnecting in 5s"
+                sleep 5
+              done
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: bridge-secret
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        # optional: the secret belongs to srt-ingest, which Flux deploys only
+        # after demo-app reports healthy. A hard env reference here dead-locks a
+        # fresh cluster (CreateContainerConfigError -> never Ready -> demo-app
+        # never healthy -> srt-ingest never deploys the secret). An optional
+        # volume lets the pod start; kubelet materializes the key when the
+        # secret appears, and the loop below picks it up.
+        - name: bridge-secret
+          secret:
+            secretName: srt-mxl-bridge-secret
+            optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srt-test-source-3
+  labels: &labels3
+    app.kubernetes.io/name: srt-test-source-3
+    app.kubernetes.io/part-of: demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: srt-test-source-3
+  template:
+    metadata:
+      labels: *labels3
+    spec:
+      # Soft affinity: UDP through a Service to a hostNetwork bridge does not
+      # work across nodes at all (seen live — the same generator works from the
+      # bridge's node and gets Input/output error from the other). Preferred,
+      # not required: on a fresh cluster the bridge does not exist yet, and a
+      # hard rule would deadlock demo-app's health against srt-ingest again.
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: srt-mxl-bridge
+                    app.kubernetes.io/instance: instance-3
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg@sha256:e6b338a3a9d7ca2a33d345fa683d68767f799f2c13694542ba5bfb4f63dff585
+          env:
+            - name: TARGET
+              value: "srt-mxl-bridge-instance-3:9002"
+            - name: LABEL
+              value: "ZUSPIELER 3"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Brace-free shell variables on purpose. The demo-app Kustomization
+              # runs Flux postBuild substitution, which rewrites every braced
+              # dollar-expression it cannot resolve from cluster-config into an
+              # empty string — it silently gutted this script's own TARGET and
+              # passphrase, and ffmpeg then dialled srt:// with no host. The
+              # braceless form is passed through untouched.
+              set -u
+              FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+              until [ -s /secrets/SRT_PASSPHRASE ]; do
+                echo "warte auf srt-mxl-bridge-secret (kommt mit srt-ingest)"
+                sleep 10
+              done
+              SRT_PASSPHRASE=$(cat /secrets/SRT_PASSPHRASE)
+              while true; do
+                ffmpeg -hide_banner -loglevel warning -re \
+                  -f lavfi -i "smptebars=size=1296x720:rate=30" \
+                  -vf "drawtext=fontfile=$FONT:text='$LABEL':fontcolor=white:fontsize=64:box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=60,drawtext=fontfile=$FONT:text='%{localtime\:%T}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-130" \
+                  -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
+                  -b:v 3000k -g 30 \
+                  -mode caller -pbkeylen 16 -passphrase "$SRT_PASSPHRASE" \
+                  -f mpegts "srt://$TARGET" || true
+                echo "feed to $TARGET ended, reconnecting in 5s"
+                sleep 5
+              done
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: bridge-secret
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        - name: bridge-secret
+          secret:
+            secretName: srt-mxl-bridge-secret
+            optional: true

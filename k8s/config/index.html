@@ -1,123 +1,775 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>MXL DMF COMPOSITE</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QVEST · MXL RDMA Multiviewer</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400..800&display=swap" rel="stylesheet">
 <style>
+  :root {
+    --qv-orange: #F05012;
+    --qv-orange-hover: #F1581E;
+    --qv-teal: #004643;
+    --qv-lime: #C8F169;
+    --qv-ink: #0B090D;
+    --qv-white: #FFFFFF;
+    --qv-radius: 20px;
+    --qv-radius-pill: 999px;
+    --qv-font: "Funnel Sans", "Aeonik", "Inter", system-ui, -apple-system, sans-serif;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; background: #000; color: #ccc; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 11px; overflow: hidden; }
-  #bar { height: 22px; background: #0a0a0a; border-bottom: 1px solid #222; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
-  #bar .m { display: flex; gap: 14px; color: #aaa; }
-  #bar .m span b { color: #00cc00; }
-  #bar .m span.warn b { color: #ffaa00; }
-  #bar .m span.bad  b { color: #ff3030; }
-  #bar .brand { display: flex; align-items: center; gap: 14px; }
-  #src { display: flex; gap: 6px; }
-  #src button { background: #111; color: #888; border: 1px solid #333; font: inherit; text-transform: uppercase; letter-spacing: 1px; padding: 1px 8px; cursor: pointer; }
-  #src button.active { color: #00ff00; border-color: #00cc00; }
-  #stage { position: absolute; top: 22px; left: 0; right: 0; bottom: 0; background: #000; display: flex; align-items: center; justify-content: center; }
-  #stage video { width: 100%; height: 100%; background: #000; object-fit: contain; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--qv-font);
+    background: var(--qv-white);
+    color: var(--qv-ink);
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px; border-bottom: 1px solid #eee; flex-wrap: wrap; gap: 10px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo { display: flex; }
+  .brand .logo svg { height: 28px; width: auto; display: block; }
+  .brand .sub {
+    font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--qv-ink); opacity: .65;
+  }
+  .status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pill {
+    border-radius: var(--qv-radius-pill); border: 2px solid var(--qv-orange);
+    color: var(--qv-orange); background: transparent; padding: .42em 1.1em;
+    font-weight: 600; font-size: 13px; display: inline-flex; align-items: center;
+    gap: 7px; white-space: nowrap;
+  }
+  .pill b { font-weight: 800; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #bbb; display: inline-block; }
+  .dot.live { background: var(--qv-lime); box-shadow: 0 0 0 3px rgba(200,241,105,.35); }
+  .dot.bad  { background: var(--qv-orange); box-shadow: 0 0 0 3px rgba(240,80,18,.3); }
+
+  main {
+    flex: 1; display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(460px, 1fr);
+    gap: 22px; padding: 24px 28px;
+  }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+  .stage-wrap { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  /* No forced aspect — the video shows at its native ratio (the mosaic
+     layout changes: 2x2, a tall 1x3 column, etc.), height-capped to the
+     viewport and centered. Avoids pillar/letterbox black bars around a
+     non-16:9 mosaic. */
+  /* Three adjacent per-flow HLS players (no compositor). Each flow is encoded
+     to its own HLS rendition by mediamtx reading the cross-node RDMA mirror;
+     each card carries a qvest lime badge naming the producing node. */
+  /* Two columns: MXL-1 + MXL-2 on row 1, MXL-3 flows to row 2. */
+  .players { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0; align-items: start; }
+  .playercard { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .pc-video {
+    width: 100%; aspect-ratio: 16 / 9; object-fit: contain;
+    background: #000; border-radius: var(--qv-radius); display: block;
+  }
+  .pc-badge {
+    display: flex; align-items: baseline; gap: 10px;
+    background: var(--qv-lime); color: var(--qv-ink);
+    border-radius: 12px; padding: 9px 14px;
+  }
+  .pc-badge.down { background: var(--qv-orange); color: #fff; }
+  .pc-badge .pc-mxl { font-weight: 800; font-size: 16px; letter-spacing: -.01em; }
+  .pc-badge .pc-origin { margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
+  .pc-badge .pc-node { font-weight: 800; font-size: 16px; }
+  .headline {
+    font-weight: 800; line-height: 1.05; letter-spacing: -0.02em;
+    font-size: clamp(22px, 3vw, 34px);
+  }
+  .headline .accent { color: var(--qv-orange); }
+
+  .panel {
+    background: var(--qv-teal); color: #fff; border-radius: var(--qv-radius);
+    padding: 22px 20px; display: flex; flex-direction: column; gap: 16px;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 5%);
+  }
+  .panel h2 { font-size: 15px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; opacity: .8; }
+  .agg { display: flex; gap: 10px; flex-wrap: wrap; }
+  .agg .stat { background: rgba(255,255,255,.07); border-radius: 14px; padding: 10px 14px; flex: 1; min-width: 100px; }
+  .agg .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .65; }
+  .agg .stat .v { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+  .agg .stat .v small { font-size: 12px; font-weight: 600; opacity: .7; }
+  .agg .stat .v.lime { color: var(--qv-lime); }
+
+  .flows { display: flex; flex-direction: column; gap: 10px; }
+  .flow { background: rgba(255,255,255,.06); border-radius: 14px; padding: 12px 14px; }
+  .flow .row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; }
+  .flow .name { font-weight: 800; font-size: 15px; }
+  .flow .name .pat { font-weight: 500; font-size: 11px; opacity: .6; margin-left: 6px; text-transform: uppercase; }
+  .flow .quick { display: flex; gap: 14px; justify-content: flex-end; }
+  .flow .quick .m { text-align: right; }
+  .flow .quick .m .k { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; }
+  .flow .quick .m .v { font-size: 15px; font-weight: 700; }
+  .flow .quick .m .v.lime { color: var(--qv-lime); }
+  .flow .quick .m .v.warn { color: var(--qv-orange); }
+  .btn {
+    border-radius: var(--qv-radius-pill); border: 2px solid rgba(255,255,255,.5);
+    color: #fff; background: transparent; padding: .3em .9em; font-weight: 700;
+    font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { border-color: #fff; }
+  .btn.kill { border-color: var(--qv-orange); color: var(--qv-orange); }
+  .btn.kill:hover { background: var(--qv-orange); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  .detail { display: none; margin-top: 12px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; }
+  .detail.open { display: block; }
+  .detail h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; opacity: .6; margin: 10px 0 5px; }
+  .detail h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: 132px 1fr; gap: 2px 10px; font-size: 12.5px; }
+  .kv .k { opacity: .6; }
+  .kv .v { font-weight: 600; word-break: break-word; display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+  .kv .v .vv { min-width: 0; word-break: break-word; }
+  .kv .v.mono, .kv .v.mono .vv { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+  .kv .v.ok { color: var(--qv-lime); }
+  .kv .v.bad { color: var(--qv-orange); }
+  .cp { flex: none; border: none; background: transparent; color: inherit; cursor: pointer;
+        opacity: .35; font-size: 12px; line-height: 1; padding: 2px 3px; border-radius: 5px; }
+  .cp:hover { opacity: 1; background: rgba(255,255,255,.12); }
+  .cp.done { opacity: 1; color: var(--qv-lime); }
+
+  .gwbar { display: flex; flex-direction: column; gap: 8px; }
+  .gwgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .gw { background: rgba(255,255,255,.06); border-radius: 12px; padding: 8px 12px; font-size: 12px; }
+  .gw .node { font-weight: 800; font-size: 14px; }
+
+  footer { padding: 12px 28px; border-top: 1px solid #eee; font-size: 12px; opacity: .55; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 8px; padding: 14px 28px 0; }
+  .tab {
+    border: none; background: transparent; font-family: inherit; cursor: pointer;
+    font-weight: 700; font-size: 14px; color: var(--qv-ink); opacity: .5;
+    padding: 8px 18px; border-radius: var(--qv-radius-pill);
+  }
+  .tab:hover { opacity: .85; }
+  .tab.active { opacity: 1; background: var(--qv-ink); color: #fff; }
+  .pane { display: none; }
+  .pane.active { display: block; }
+  /* txDarwin / SRT switcher */
+  .tx-main { padding: 20px 28px; display: flex; flex-direction: column; gap: 14px; max-width: 1180px; }
+  .tx-toggle { display: flex; gap: 8px; }
+  .txbtn {
+    border-radius: var(--qv-radius-pill); border: 2px solid var(--qv-orange);
+    color: var(--qv-orange); background: transparent; font-family: inherit;
+    font-weight: 700; font-size: 13px; padding: .45em 1.2em; cursor: pointer;
+  }
+  .txbtn:hover { background: rgba(240,80,18,.08); }
+  .txbtn.active { background: var(--qv-orange); color: #fff; }
+  .tx-video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--qv-radius); display: block; }
+
+  /* Booking showcase. Two instances on the left, the schedule's effect on the
+     cluster on the right — and both instances must fit one screen without
+     scrolling, because the whole point is watching one hand over to the other. */
+  .bk-main {
+    padding: 14px 24px 18px; display: grid; gap: 16px;
+    grid-template-columns: minmax(0, 1.5fr) minmax(330px, 1fr);
+    height: calc(100vh - 132px); min-height: 0;
+  }
+  @media (max-width: 1100px) { .bk-main { grid-template-columns: 1fr; height: auto; } }
+  .bk-left { display: grid; grid-template-rows: 1fr 1fr; gap: 12px; min-height: 0; min-width: 0; }
+  .bk-right { display: grid; grid-template-rows: auto 1fr; gap: 12px; min-height: 0; min-width: 0; }
+  .bk-tile { display: grid; grid-template-rows: auto 1fr auto; gap: 6px; min-height: 0; opacity: .5; transition: opacity .3s; }
+  .bk-tile.on { opacity: 1; }
+  .bk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .bk-title { font-size: 13px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+  .bk-sub { font-size: 11.5px; opacity: .55; }
+  .bk-badge {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    padding: .3em .8em; border-radius: var(--qv-radius-pill); background: #ddd; color: #555; white-space: nowrap;
+  }
+  .bk-badge.live { background: var(--qv-lime); color: var(--qv-ink); }
+  .bk-badge.pending { background: var(--qv-orange); color: #fff; }
+  /* The video shrinks with the row instead of forcing an aspect ratio on it. */
+  .bk-video { width: 100%; height: 100%; min-height: 0; background: #000; border-radius: var(--qv-radius); display: block; object-fit: contain; }
+  .bk-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .bk-chip {
+    font-size: 10.5px; font-weight: 700; padding: .28em .7em; border-radius: var(--qv-radius-pill);
+    border: 2px solid rgba(0,0,0,.12); color: #666;
+  }
+  .bk-chip.active { border-color: var(--qv-orange); color: var(--qv-orange); }
+
+  /* Phase band: what the schedule is doing, in its own vocabulary. */
+  .bk-phases { display: flex; gap: 4px; }
+  .bk-phase {
+    flex: 1; text-align: center; font-size: 9.5px; font-weight: 800; letter-spacing: .04em;
+    text-transform: uppercase; padding: .5em .2em; border-radius: 8px;
+    background: rgba(255,255,255,.06); color: rgba(255,255,255,.4);
+  }
+  .bk-phase.done { color: rgba(255,255,255,.75); }
+  .bk-phase.now { background: var(--qv-orange); color: #fff; }
+  /* Signal path, so a stalled source is visible where it stalls. */
+  .bk-chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 10.5px; }
+  .bk-node { display: flex; align-items: center; gap: 5px; opacity: .8; }
+  .bk-dot { width: 8px; height: 8px; border-radius: 50%; background: #888; }
+  .bk-dot.ok { background: var(--qv-lime); }
+  .bk-dot.warn { background: var(--qv-orange); }
+  .bk-arrow { opacity: .35; }
+  .bk-log-panel { min-height: 0; display: grid; grid-template-rows: auto 1fr; }
+  .bk-log { list-style: none; margin: 0; padding: 0; font-size: 12px; overflow-y: auto; min-height: 0; }
+  .bk-log li { padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,.06); display: grid; grid-template-columns: 58px 14px 1fr; gap: 8px; align-items: baseline; }
+  .bk-log .t { opacity: .5; font-variant-numeric: tabular-nums; }
+  .bk-log .i { font-size: 11px; }
+  .bk-state { font-size: 12px; line-height: 1.65; }
+  .bk-state .kvline { display: grid; grid-template-columns: 104px 1fr; gap: 3px 10px; }
+
+  /* Loading overlay: shown over each video until it starts playing (WebRTC ICE
+     handshake takes a moment; on fallback, HLS buffering does too). */
+  .vwrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  .vloader {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: rgba(11,9,13,.6); color: #fff; border-radius: var(--qv-radius);
+    font-size: 13px; font-weight: 700; letter-spacing: .03em;
+  }
+  .vloader.hide { display: none; }
+  .vloader .spin {
+    width: 40px; height: 40px; border: 3px solid rgba(255,255,255,.22);
+    border-top-color: var(--qv-lime); border-radius: 50%;
+    animation: vspin .8s linear infinite;
+  }
+  @keyframes vspin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-  <div id="bar">
+  <header>
     <div class="brand">
-      <span>MXL DMF COMPOSITE</span>
-      <div id="src">
-        <button data-path="composite" class="active">Composite</button>
-        <button data-path="txdarwin-out">txDarwin Out</button>
+      <span class="logo" aria-label="Qvest"><svg viewBox="0 0 2026 504" role="img" xmlns="http://www.w3.org/2000/svg"><g fill="#f05012"><path d="M249.999.002c145.999-.5,249.999,104,249.999,250,0,60-17.5,115.499-52,158.999l64,90.999H249.999C104,500,0,396,0,250.001S104,.502,249.999.002ZM389.498,325c10-20.5,15.5-46.999,15.5-74.999,0-93-62-158.999-155-158.999S94.999,157.001,94.999,250.001s62,158.999,154.999,158.999h81c.5,0,1.5,0,2-.501l-110.999-158.499h115l52.5,74.999Z"/><path d="M718.993,414l92.999-273.998h102l-131.499,359.998h-128.999l-131.499-359.998h102l92.999,273.998h2Z"/><path d="M1275.006,359h-265.998c9,37,38.5,59,101.5,59h118.499v82h-118.499c-136,0-201.499-70-201.499-180,0-108.999,74.999-183.999,183.999-183.999,109.999,0,181.999,72.499,181.999,183.999v39ZM1181.007,286c-7-41.5-34-69.999-86.999-69.999-52,0-79,32-87,69.999h173.999Z"/><path d="M1443.004,222.001c-21.001,0-32.5,10.501-32.5,28.5s11.5,28.5,32.5,28.5h96.499c68,0,114.5,41.5,114.5,110.499s-46.5,110.499-114.5,110.499h-246.499v-82h235.5c21,0,32.499-11.5,32.499-28.499s-11.5-28.5-32.499-28.5h-96.5c-68,0-114.5-41.5-114.5-110.499s46.5-110.499,114.5-110.499h203.999v81.999h-192.999Z"/><path d="M2026,222.001h-231.999v120c0,60,35.499,79.999,71.499,79.999s71.5-20,71.5-79.999v-22.001h88.999v20.001c0,105.999-71,163.999-162.999,163.999-93.999,0-162.999-62-162.999-169.999V45.002L1794.001.002v140h231.999v81.999Z"/></g></svg></span>
+      <span class="sub">MXL · RDMA Multiviewer</span>
+    </div>
+    <div class="status">
+      <span class="pill"><b id="clk">--:--:--</b></span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="mv">Multiviewer</button>
+    <button class="tab" data-tab="tx">txDarwin / SRT</button>
+    <button class="tab" data-tab="cp">Composite</button>
+    <button class="tab" data-tab="bk">Booking</button>
+  </nav>
+
+  <div id="pane-mv" class="pane active">
+  <main>
+    <div class="stage-wrap">
+      <div class="players">
+        <div class="playercard">
+          <div class="pc-badge" id="origin-1"><span class="pc-mxl">MXL-1</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v1" class="pc-video" muted autoplay playsinline></video>
+        </div>
+        <div class="playercard">
+          <div class="pc-badge" id="origin-2"><span class="pc-mxl">MXL-2</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v2" class="pc-video" muted autoplay playsinline></video>
+        </div>
+        <div class="playercard">
+          <div class="pc-badge" id="origin-3"><span class="pc-mxl">MXL-3</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v3" class="pc-video" muted autoplay playsinline></video>
+        </div>
+        <div class="playercard">
+          <div class="pc-badge" id="origin-4"><span class="pc-mxl">MXL-4</span><span class="pc-origin">origin</span><span class="pc-node">--</span></div>
+          <video id="v4" class="pc-video" muted autoplay playsinline></video>
+        </div>
       </div>
     </div>
-    <div class="m">
-      <span>HLS LAG <b id="hls-lag">--</b> ms</span>
-      <span>STATE <b id="state">CONN</b></span>
-    </div>
-    <div><span id="clk">--:--:--</span></div>
+
+    <aside class="panel">
+      <h2>RDMA delivery</h2>
+      <div class="agg">
+        <div class="stat"><div class="k">Throughput</div><div class="v lime"><span id="agg-mbps">--</span> <small>Mbit/s</small></div></div>
+        <div class="stat"><div class="k">Grains / s</div><div class="v"><span id="agg-fps">--</span></div></div>
+        <div class="stat"><div class="k">Tiles live</div><div class="v"><span id="agg-live">-</span><small>/<span id="agg-total">-</span></small></div></div>
+      </div>
+      <div class="flows" id="flows"></div>
+
+      <div class="gwbar">
+        <h2>Gateways</h2>
+        <div class="gwgrid" id="gwgrid"></div>
+      </div>
+    </aside>
+  </main>
   </div>
-  <div id="stage">
-    <video id="v" muted autoplay playsinline></video>
+
+  <div id="pane-tx" class="pane">
+    <main class="tx-main">
+      <div class="tx-toggle">
+        <button class="txbtn active" data-path="txdarwin-out">txDarwin Out</button>
+        <button class="txbtn" data-path="srt-camera">SRT Camera</button>
+        <button class="txbtn" data-path="txdarwin-ac3demo-out">Booking Out (ac3demo)</button>
+      </div>
+      <video id="txv" class="tx-video" muted autoplay playsinline></video>
+    </main>
   </div>
+
+  <div id="pane-bk" class="pane">
+    <main class="bk-main">
+      <section class="bk-left">
+        <div class="bk-tile" id="bk-card-t1">
+          <div class="bk-head">
+            <div>
+              <div class="bk-title">Template 1 &middot; Instance t1</div>
+              <div class="bk-sub" id="bk-sub-t1">&mdash;</div>
+            </div>
+            <span class="bk-badge" id="bk-badge-t1">offline</span>
+          </div>
+          <video id="bkv-t1" class="bk-video" muted autoplay playsinline></video>
+          <div>
+            <div class="bk-chips" id="bk-chips-t1"></div>
+          </div>
+        </div>
+        <div class="bk-tile" id="bk-card-t2">
+          <div class="bk-head">
+            <div>
+              <div class="bk-title">Template 2 &middot; Instance t2</div>
+              <div class="bk-sub" id="bk-sub-t2">&mdash;</div>
+            </div>
+            <span class="bk-badge" id="bk-badge-t2">offline</span>
+          </div>
+          <video id="bkv-t2" class="bk-video" muted autoplay playsinline></video>
+          <div>
+            <div class="bk-chips" id="bk-chips-t2"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="bk-right">
+        <div class="panel">
+          <h2>Schedule</h2>
+          <div class="bk-phases" id="bk-phases"></div>
+          <div class="bk-chain" id="bk-chain"></div>
+          <div class="bk-state" id="bk-state">waiting for a booking&hellip;</div>
+        </div>
+        <div class="panel bk-log-panel">
+          <h2>What's happening</h2>
+          <ol class="bk-log" id="bk-log"></ol>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="pane-cp" class="pane">
+    <main class="tx-main">
+      <div class="pc-badge"><span class="pc-mxl">Composite</span><span class="pc-origin">2×2 mosaic</span><span class="pc-node">MXL-1…4</span></div>
+      <video id="cpv" class="tx-video" muted autoplay playsinline></video>
+    </main>
+  </div>
+
+  <footer></footer>
 
   <script>
-    var clk = document.getElementById('clk');
-    var lagEl = document.getElementById('hls-lag');
-    var stEl = document.getElementById('state');
-    var video = document.getElementById('v');
-
     function pad(n){ return n<10 ? '0'+n : ''+n; }
-    function tick(){
-      var d = new Date();
-      clk.textContent = pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    var clk = document.getElementById('clk');
+    setInterval(function(){ var d=new Date(); clk.textContent = pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); }, 250);
+
+    function fmt(n,d){ return (n==null||isNaN(n)) ? '--' : Number(n).toFixed(d==null?0:d); }
+    function ago(iso){ if(!iso) return '--'; var s=Math.max(0,(Date.now()-Date.parse(iso))/1000); if(s<90) return s.toFixed(0)+'s'; if(s<5400) return (s/60).toFixed(0)+'m'; return (s/3600).toFixed(1)+'h'; }
+    function esc(s){ return (s==null?'':String(s)).replace(/[<&]/g, function(c){return c=='<'?'&lt;':'&amp;';}); }
+    function shortImg(s){ if(!s) return '--'; return s.replace(/^.*\//,'').slice(0,40); }
+
+    var cards = {};       // n -> elements
+    var openDetail = {};  // n -> bool
+
+    function ensureCard(n){
+      if (cards[n]) return cards[n];
+      var el = document.createElement('div'); el.className='flow';
+      el.innerHTML =
+        '<div class="row">' +
+          '<span class="dot" data-r="dot"></span>' +
+          '<span class="name"><span data-r="name">MXL-'+n+'</span><span class="pat" data-r="pat"></span></span>' +
+          '<span class="quick">' +
+            '<span class="m"><div class="k">grains/s</div><div class="v" data-r="fps">--</div></span>' +
+            '<span class="m"><div class="k">Mbit/s</div><div class="v lime" data-r="mbps">--</div></span>' +
+          '</span>' +
+          '<span style="display:flex;gap:6px">' +
+            '<button class="btn" data-r="details">Details ▾</button>' +
+            '<button class="btn kill" data-r="kill">Kill</button>' +
+          '</span>' +
+        '</div>' +
+        '<div class="detail" data-r="detail"></div>';
+      document.getElementById('flows').appendChild(el);
+      var c = { root:el,
+        dot:el.querySelector('[data-r=dot]'), name:el.querySelector('[data-r=name]'), pat:el.querySelector('[data-r=pat]'),
+        fps:el.querySelector('[data-r=fps]'), mbps:el.querySelector('[data-r=mbps]'),
+        details:el.querySelector('[data-r=details]'), kill:el.querySelector('[data-r=kill]'),
+        detail:el.querySelector('[data-r=detail]') };
+      c.details.onclick = function(){ openDetail[n]=!openDetail[n]; c.detail.classList.toggle('open', openDetail[n]); c.details.textContent = 'Details '+(openDetail[n]?'▴':'▾'); };
+      c.kill.onclick = function(){
+        c.kill.disabled=true; c.kill.textContent='Killing…';
+        fetch('/api/kill/'+n, {method:'POST'}).then(function(r){return r.json();})
+          .then(function(){ c.kill.textContent='Killed'; setTimeout(function(){ c.kill.disabled=false; c.kill.textContent='Kill'; }, 4000); })
+          .catch(function(){ c.kill.textContent='Kill failed'; setTimeout(function(){ c.kill.disabled=false; c.kill.textContent='Kill'; }, 4000); });
+      };
+      cards[n]=c; return c;
     }
-    setInterval(tick, 250); tick();
 
-    // Active stream path under /hls/<path>/index.m3u8. Switchable between the
-    // 9-flow composite and the txDarwin output via the source buttons.
-    var currentPath = 'composite';
-    function srcUrl(){ return '/hls/' + currentPath + '/index.m3u8'; }
+    function kvRow(k,v,cls){ return '<div class="k">'+k+'</div><div class="v '+(cls||'')+'"><span class="vv">'+v+'</span><button class="cp" type="button" title="Copy" aria-label="Copy">⧉</button></div>'; }
 
-    if (Hls.isSupported()) {
-      var frags = {};
-      function rememberFrag(f){
-        if (f.programDateTime == null) return;
-        frags[f.sn] = { pdt: f.programDateTime, start: f.start, dur: f.duration };
-        var keys = Object.keys(frags);
-        if (keys.length > 8) {
-          keys.sort(function(a,b){ return +a - +b; });
-          delete frags[keys[0]];
+    function renderDetail(f){
+      var w=f.writer||{}, comp=f.compositor||{}, rc=f.receiver||{}, fl=f.flow||{}, m=f.media||{};
+      var mir=(f.mirrors||[]).map(function(m){return m.sourceNode+'→'+m.name.split('--').pop()+' '+m.phase+' ('+m.provider+')';}).join('<br>')||'--';
+      var locs=(fl.locations||[]).map(function(l){return l.node+':'+l.phase;}).join(', ')||'--';
+      var ofresh = fl.originFresh==='True';
+      return ''+
+        '<h3>Media</h3><div class="kv">'+
+          kvRow('grain format', esc(m.mediaType)||'--')+
+          kvRow('overlay blend', esc(w.overlayFormat)||'--', w.overlayFormat==='v210'?'bad':(w.overlayFormat?'ok':''))+
+          kvRow('resolution', (m.width&&m.height)? (m.width+'×'+m.height) : '--')+
+          kvRow('bit depth', m.bitDepth? (m.bitDepth+'-bit') : '--')+
+          kvRow('colorspace', esc(m.colorspace)||'--')+
+          kvRow('grain rate', esc(m.grainRate)||'--')+
+          kvRow('fps', fmt(m.fps,2))+
+          kvRow('grain size', m.grainBytes? ((m.grainBytes/1048576).toFixed(2)+' MiB') : '--')+
+          kvRow('RDMA rate', m.mbps? (m.mbps+' Mbit/s') : '--')+
+        '</div>'+
+        '<h3>Writer pod</h3><div class="kv">'+
+          kvRow('node', esc(w.node)||'--', w.node? 'ok':'')+
+          kvRow('phase', esc(w.phase)||'--', w.phase==='Running'?'ok':'bad')+
+          kvRow('ready', w.ready?'yes':'no', w.ready?'ok':'bad')+
+          kvRow('restarts', w.restarts==null?'--':w.restarts, w.restarts?'bad':'')+
+          kvRow('pattern', esc(w.pattern)||'--')+
+          kvRow('uptime', ago(w.started))+
+          kvRow('pod', '<span class="mono">'+esc(w.pod)+'</span>')+
+          kvRow('image', '<span class="mono">'+esc(shortImg(w.image))+'</span>')+
+        '</div>'+
+        '<h3>Compositor (RDMA receive)</h3><div class="kv">'+
+          kvRow('grains/s', fmt(comp.fps,1), comp.live?'ok':'bad')+
+          kvRow('throughput', fmt(comp.mbps,0)+' Mbit/s')+
+          kvRow('grains pushed', comp.pushed==null?'--':comp.pushed)+
+          kvRow('grains dropped', comp.missed==null?'--':comp.missed, comp.missed?'bad':'')+
+          kvRow('live', comp.live?'yes':'no', comp.live?'ok':'bad')+
+        '</div>'+
+        '<h3>Receiver / mirror (gateway)</h3><div class="kv">'+
+          kvRow('provider', esc(rc.provider)||'--')+
+          kvRow('receiver', esc(rc.phase)||'--', rc.phase==='Bound'?'ok':'bad')+
+          kvRow('mirror', '<span class="mono">'+mir+'</span>')+
+        '</div>'+
+        '<h3>Flow origin</h3><div class="kv">'+
+          kvRow('origin fresh', ofresh?'yes':'no', ofresh?'ok':'bad')+
+          kvRow('reason', esc(fl.originReason)||'--')+
+          kvRow('locations', '<span class="mono">'+esc(locs)+'</span>')+
+          kvRow('uuid', '<span class="mono">'+esc(f.uuid)+'</span>')+
+        '</div>';
+    }
+
+    function renderGateways(gws){
+      var g=document.getElementById('gwgrid');
+      g.innerHTML=(gws||[]).map(function(x){
+        return '<div class="gw"><div class="node">'+esc(x.node)+'</div>'+
+          'ready '+(x.ready?'✓':'✗')+' · restarts '+x.restarts+'<br>'+
+          '<span style="opacity:.6">'+esc(x.name)+'</span></div>';
+      }).join('') || '<div class="gw">no gateway pods</div>';
+    }
+
+    function updateOrigins(flows){
+      (flows||[]).forEach(function(f){
+        var b=document.getElementById('origin-'+f.n);
+        if(!b) return;
+        var node=(f.writer&&f.writer.node)?f.writer.node:'--';
+        b.querySelector('.pc-node').textContent=node;
+        var live=f.compositor&&f.compositor.live;
+        b.className='pc-badge'+(live?'':' down');
+      });
+    }
+
+    function apply(data){
+      var totMbps=0, totFps=0, live=0, flows=data.flows||[];
+      updateOrigins(flows);
+      flows.forEach(function(f){
+        var c=ensureCard(f.n), comp=f.compositor||{};
+        c.name.textContent = f.label;
+        c.pat.textContent = (f.writer&&f.writer.pattern)?f.writer.pattern:'';
+        c.fps.textContent = fmt(comp.fps,1);
+        c.mbps.textContent = fmt(comp.mbps,0);
+        c.dot.className = 'dot ' + (comp.live ? 'live' : 'bad');
+        if (openDetail[f.n]) c.detail.innerHTML = renderDetail(f);
+        totMbps += comp.mbps||0; totFps += comp.fps||0; if (comp.live) live++;
+      });
+      document.getElementById('agg-mbps').textContent = fmt(totMbps,0);
+      document.getElementById('agg-fps').textContent = fmt(totFps,0);
+      document.getElementById('agg-live').textContent = live;
+      document.getElementById('agg-total').textContent = flows.length;
+      renderGateways(data.gateways);
+    }
+
+    function poll(){
+      fetch('/api/flows', {cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
+    }
+    setInterval(poll, 1500); poll();
+
+    // ── Per-flow players: WebRTC/WHEP first (sub-second), HLS on fallback ──
+
+    // WHEP: mediamtx serves it at /webrtc/<path>/whep (caddy -> :8889). Non-
+    // trickle — gather ICE, POST the offer, apply the answer. onFail() lets the
+    // caller drop to HLS (e.g. a cluster without the UDP ICE LoadBalancer).
+    function whep(path, video, onFail){
+      var pc, done=false;
+      function fail(){ if(done) return; done=true; clearTimeout(timer); try{pc&&pc.close();}catch(e){} onFail&&onFail(); }
+      var timer=setTimeout(fail, 8000);
+      try { pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]}); }
+      catch(e){ return fail(); }
+      pc.addTransceiver('video',{direction:'recvonly'});
+      pc.addTransceiver('audio',{direction:'recvonly'});
+      pc.ontrack=function(e){ if(!video.srcObject){ video.srcObject=e.streams[0]; var p=video.play&&video.play(); if(p&&p.catch)p.catch(function(){}); } };
+      pc.onconnectionstatechange=function(){
+        if(pc.connectionState==='connected'){ done=true; clearTimeout(timer); }
+        else if(pc.connectionState==='failed'){ fail(); }
+      };
+      pc.createOffer().then(function(o){ return pc.setLocalDescription(o); }).then(function(){
+        return new Promise(function(res){
+          if(pc.iceGatheringState==='complete') return res();
+          var chk=function(){ if(pc.iceGatheringState==='complete'){ pc.removeEventListener('icegatheringstatechange',chk); res(); } };
+          pc.addEventListener('icegatheringstatechange',chk);
+          setTimeout(res, 2500);
+        });
+      }).then(function(){
+        return fetch('/webrtc/'+path+'/whep',{method:'POST',headers:{'Content-Type':'application/sdp'},body:pc.localDescription.sdp});
+      }).then(function(r){ if(!r.ok) throw new Error('whep '+r.status); return r.text(); })
+        .then(function(sdp){ return pc.setRemoteDescription({type:'answer',sdp:sdp}); })
+        .catch(fail);
+      return pc;
+    }
+
+    function hlsPlay(n, video){
+      var src='/hls/'+(n?('mxl-'+n):'')+'/index.m3u8';
+      if (typeof n==='string'){ src='/hls/'+n+'/index.m3u8'; n=0; }
+      if (Hls.isSupported()) {
+        var hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
+        hls.loadSource(src); hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
+        hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ hls.loadSource(src); }, 5000); });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src=src; video.addEventListener('loadedmetadata', function(){ video.play(); });
+      }
+    }
+
+    // Loading overlay per video: wrap it so an absolute spinner sits over it,
+    // hidden once the video actually plays and re-shown if its source resets
+    // (e.g. the txDarwin/SRT switch or a WebRTC reconnect).
+    function setupLoaders(){
+      document.querySelectorAll('video').forEach(function(v){
+        if (v.parentElement.classList.contains('vwrap')) return;
+        var w=document.createElement('div'); w.className='vwrap';
+        v.parentNode.insertBefore(w, v); w.appendChild(v);
+        var ld=document.createElement('div'); ld.className='vloader';
+        ld.innerHTML='<div class="spin"></div><span>Verbinde Stream…</span>';
+        w.appendChild(ld);
+        v.addEventListener('playing', function(){ ld.classList.add('hide'); });
+        v.addEventListener('emptied', function(){ ld.classList.remove('hide'); });
+      });
+    }
+    setupLoaders();
+
+    function startPlayer(n){
+      var video=document.getElementById('v'+n);
+      whep('mxl-'+n, video, function(){ hlsPlay(n, video); });
+    }
+    [1,2,3,4].forEach(startPlayer);
+
+    // Copy button on every detail row — delegated, so it keeps working for the
+    // rows build() regenerates on each refresh. Copies the row's value text
+    // (clipboard API, with an execCommand fallback for non-secure contexts).
+    document.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('.cp') : null;
+      if (!b) return;
+      var vv = b.parentElement.querySelector('.vv');
+      var txt = (vv ? vv.textContent : '').trim();
+      if (!txt || txt === '--') return;
+      function done(){ b.classList.add('done'); b.textContent='✓'; setTimeout(function(){ b.classList.remove('done'); b.textContent='⧉'; }, 1000); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(done, function(){});
+      } else {
+        var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch(_){}
+        document.body.removeChild(ta);
+      }
+    });
+
+    // ── Tabs + txDarwin/SRT switcher: one player, source-switchable between the
+    // txDarwin output and the SRT-camera ingest. Lazy-started on first tab open
+    // so it doesn't pull those mediamtx encoders until someone looks. ──
+    (function(){
+      var txv=document.getElementById('txv');
+      var txPath='txdarwin-out', txStarted=false, txPc=null;
+      function txLoad(){
+        try{txPc&&txPc.close();}catch(e){} txPc=null; try{txv.srcObject=null;}catch(e){}
+        // txdarwin-out is Main-profile H264 (avc1.4d..; hardcoded in the compositor
+        // x264enc) which browser WebRTC decoders render black — they connect, so
+        // the WHEP fallback never fires. Play it over HLS/MSE like the 2x2
+        // composite. srt-camera is a live ingest where sub-second latency is the
+        // point, so keep it on WebRTC (WHEP) with HLS fallback; it is encoded
+        // baseline (see mediamtx.yml srt-camera) so the browser can decode it.
+        if (txPath==='txdarwin-out'){
+          hlsPlay(txPath, txv);
+        } else {
+          txPc=whep(txPath, txv, function(){ hlsPlay(txPath, txv); });
         }
       }
-      var hls = new Hls({ liveSyncDurationCount: 1, liveMaxLatencyDurationCount: 2, enableWorker: true, lowLatencyMode: true });
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function(){ stEl.textContent = 'LIVE'; stEl.style.color = '#00ff00'; video.play(); });
-      hls.on(Hls.Events.LEVEL_LOADED, function(ev, data){ if (data.details && data.details.fragments) data.details.fragments.forEach(rememberFrag); });
-      hls.on(Hls.Events.FRAG_LOADED, function(ev, data){ rememberFrag(data.frag); });
-      hls.on(Hls.Events.ERROR, function(ev, data){
-        if (!data.fatal) return;
-        stEl.textContent = 'OFF'; stEl.style.color = '#ff3030';
-        setTimeout(function(){
-          stEl.textContent = 'CONN'; stEl.style.color = '#ffaa00';
-          hls.loadSource(srcUrl());
-        }, 5000);
-      });
-
-      function loadCurrent(){
-        frags = {};
-        lagEl.textContent = '--';
-        stEl.textContent = 'CONN'; stEl.style.color = '#ffaa00';
-        hls.loadSource(srcUrl());
-      }
-      loadCurrent();
-
-      // Source toggle: switch the single player between the available
-      // mediamtx HLS paths without reloading the page.
-      document.querySelectorAll('#src button').forEach(function(btn){
-        btn.addEventListener('click', function(){
-          var path = btn.getAttribute('data-path');
-          if (path === currentPath) return;
-          currentPath = path;
-          document.querySelectorAll('#src button').forEach(function(b){ b.classList.remove('active'); });
-          btn.classList.add('active');
-          loadCurrent();
+      document.querySelectorAll('.txbtn').forEach(function(b){
+        b.addEventListener('click', function(){
+          if (b.getAttribute('data-path')===txPath) return;
+          txPath=b.getAttribute('data-path');
+          document.querySelectorAll('.txbtn').forEach(function(x){ x.classList.remove('active'); });
+          b.classList.add('active');
+          txLoad();
         });
       });
+      // Composite: the mosaic the compositor pod RTSP-publishes to mediamtx.
+      var cpv=document.getElementById('cpv'), cpStarted=false, cpPc=null;
+      // Composite is a 2592x1440 (2x2 mosaic) Main-profile H264 stream — browser
+      // WebRTC decoders choke on that (they connect but render black), while
+      // HLS/MSE handles it fine. So the mosaic plays over HLS, not WHEP. It's a
+      // latency-tolerant overview anyway; the live per-flow tiles stay WebRTC.
+      function cpLoad(){ hlsPlay('composite', cpv); }
 
-      // HLS+player lag. Same PDT trick as the old grid: subtract the
-      // wall-clock at which the visible frame was muxed from Date.now().
-      // This is the delta between the burned-in clock on the picture and
-      // the bar clock above — visible to the eye as a sanity check.
-      setInterval(function(){
-        if (video.readyState < 2) return;
-        var ct = video.currentTime;
-        var match = null;
-        for (var k in frags) { var f = frags[k]; if (ct >= f.start && ct < f.start + f.dur) { match = f; break; } }
-        if (!match) return;
-        var lag = Date.now() - (match.pdt + (ct - match.start) * 1000);
-        if (lag < 0 || lag > 60000) return;
-        lagEl.textContent = lag.toFixed(0);
-        lagEl.parentElement.className = (lag < 2500 ? '' : (lag < 6000 ? 'warn' : 'bad'));
-      }, 250);
-    }
+      // ── Booking showcase ──────────────────────────────────────────────────
+      // Left: the two instances a MediaOps booking can deploy. A tile's chips
+      // are what the template wired — two is template-1, three is template-2 —
+      // and the highlighted chip is the source the reader is on *right now*,
+      // read from txDarwin itself, so switching in its UI shows up here.
+      //
+      // Right: the schedule's vocabulary (pre-roll, on air, post-roll), the
+      // signal path so a stalled source is visible where it stalls, and the few
+      // cluster events an audience can follow.
+      //
+      // Liveness comes from frame progress, not from the WebRTC state: the peer
+      // connection stays "connected" after the publisher disappears, so a
+      // torn-down instance would otherwise still read as live.
+      var bkStarted=false;
+      var BK=[{name:'t1',path:'txdarwin-t1-out'},{name:'t2',path:'txdarwin-t2-out'}];
+      var PHASES=[['booked','Booked'],['deploying','Pre-Roll'],['on-air','On Air'],['post-roll','Post-Roll'],['reclaimed','Reclaimed']];
+      var bkLive={t1:false,t2:false};
+
+      function bkVideo(t){
+        var v=document.getElementById('bkv-'+t.name), badge=document.getElementById('bk-badge-'+t.name);
+        var card=document.getElementById('bk-card-'+t.name), last=-1, pc=null;
+        function connect(){
+          try{pc&&pc.close();}catch(e){} pc=null; try{v.srcObject=null;}catch(e){}
+          pc=whep(t.path, v, function(){ hlsPlay(t.path, v); });
+        }
+        connect();
+        setInterval(function(){
+          var moving = v.currentTime > last + 0.01;
+          last = v.currentTime;
+          bkLive[t.name]=moving;
+          card.classList.toggle('on', moving);
+          if (moving){ badge.textContent='live'; badge.classList.add('live'); badge.classList.remove('pending'); }
+          else if (!badge.classList.contains('pending')){ badge.textContent='offline'; badge.classList.remove('live'); }
+          if (!moving) connect();
+        }, 4000);
+      }
+
+      function bkChips(name, inst){
+        var box=document.getElementById('bk-chips-'+name);
+        if (!inst || !inst.sources || !inst.sources.length){ box.innerHTML=''; return; }
+        var live = inst.liveReaderFlow || inst.readerFlow;
+        box.innerHTML = inst.sources.map(function(f,i){
+          var on = f===live;
+          return '<span class="bk-chip'+(on?' active':'')+'">SRT-'+(i+1)+(on?' &bull; reading':'')+'</span>';
+        }).join('');
+      }
+
+      // One band for the booking that is currently driving the cluster: the
+      // instance on air if there is one, otherwise the one coming up or going.
+      function bkPhaseBand(instances){
+        var order={'deploying':1,'on-air':2,'post-roll':3,'reclaimed':4};
+        var lead=instances.slice().sort(function(a,b){ return (order[b.phase]||0)-(order[a.phase]||0); })[0];
+        var cur = lead ? lead.phase : null;
+        var idx = cur ? PHASES.map(function(p){return p[0];}).indexOf(cur) : -1;
+        document.getElementById('bk-phases').innerHTML = PHASES.map(function(p,i){
+          var cls = i===idx ? 'now' : (idx>i ? 'done' : '');
+          return '<div class="bk-phase '+cls+'">'+p[1]+'</div>';
+        }).join('');
+      }
+
+      // Source → bridge → flow → reader → writer → tile. Green where we have
+      // positive evidence, amber where the instance is up but nothing arrives.
+      function bkChain(instances){
+        var onair=instances.filter(function(i){ return i.phase==='on-air'; })[0];
+        var frames = bkLive.t1 || bkLive.t2;
+        var st = function(ok, warn){ return ok ? 'ok' : (warn ? 'warn' : ''); };
+        var nodes=[
+          ['SRT source', st(frames, !!onair)],
+          ['Bridge', st(frames, !!onair)],
+          ['MXL-Flow', st(!!onair, false)],
+          ['Reader', st(!!onair && frames, !!onair)],
+          ['Writer', st(!!onair && frames, !!onair)],
+          ['Multiviewer', st(frames, false)]
+        ];
+        document.getElementById('bk-chain').innerHTML = nodes.map(function(n,i){
+          return '<span class="bk-node"><span class="bk-dot '+n[1]+'"></span>'+n[0]+'</span>'
+               + (i<nodes.length-1 ? '<span class="bk-arrow">→</span>' : '');
+        }).join('');
+      }
+
+      function bkRenderState(d){
+        var box=document.getElementById('bk-state');
+        if (!d.instances.length){ box.textContent='no instance deployed \u2014 waiting for pre-roll'; return; }
+        box.innerHTML = d.instances.map(function(i){
+          var pod = i.pod ? (i.pod.deleting ? 'terminating' : i.pod.phase) : '\u2014';
+          return '<div class="kvline">'
+            + '<div>Instance</div><div><b>'+i.name+'</b> ('+(i.type||'?')+')</div>'
+            + '<div>Phase</div><div>'+(i.phase||'\u2014')+'</div>'
+            + '<div>Pod</div><div>'+pod+'</div>'
+            + '<div>Sources</div><div>'+(i.sources?i.sources.length:0)+'</div>'
+            + '</div>';
+        }).join('<hr style="border:none;border-top:1px solid rgba(0,0,0,.08);margin:6px 0">');
+      }
+
+      var ICON={deploy:'\u25B6', live:'\u25CF', teardown:'\u25A0'};
+      function bkRenderLog(story){
+        document.getElementById('bk-log').innerHTML = story.slice().reverse().map(function(e){
+          return '<li><span class="t">'+(e.at||'').slice(11,19)+'</span>'
+               + '<span class="i">'+(ICON[e.kind]||'')+'</span><span>'+e.text+'</span></li>';
+        }).join('');
+      }
+
+      function bkPoll(){
+        fetch('/api/booking',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+          if (d.error || !d.instances) return;
+          BK.forEach(function(t){
+            var inst = d.instances.filter(function(i){ return i.name===t.name; })[0];
+            bkChips(t.name, inst);
+            var sub=document.getElementById('bk-sub-'+t.name), badge=document.getElementById('bk-badge-'+t.name);
+            sub.textContent = inst ? ((inst.sources||[]).length + ' SRT sources \u00b7 ' + (inst.type||'')) : 'not deployed';
+            // Deployed but no frames yet (image pull, reader starting): say so,
+            // instead of showing "offline" next to a running pod.
+            if (inst && inst.replicas && !badge.classList.contains('live')){
+              badge.textContent='deploying'; badge.classList.add('pending');
+            } else if (!inst || !inst.replicas){
+              badge.classList.remove('pending');
+            }
+          });
+          bkPhaseBand(d.instances);
+          bkChain(d.instances);
+          bkRenderState(d);
+          bkRenderLog(d.story||[]);
+        }).catch(function(){});
+      }
+
+      function bkStart(){ BK.forEach(bkVideo); bkPoll(); setInterval(bkPoll, 2500); }
+
+      document.querySelectorAll('.tab').forEach(function(t){
+        t.addEventListener('click', function(){
+          var id=t.getAttribute('data-tab');
+          document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('active'); });
+          t.classList.add('active');
+          ['mv','tx','cp','bk'].forEach(function(k){ document.getElementById('pane-'+k).classList.toggle('active', id===k); });
+          if (id==='tx' && !txStarted){ txStarted=true; txLoad(); }
+          if (id==='cp' && !cpStarted){ cpStarted=true; cpLoad(); }
+          if (id==='bk' && !bkStarted){ bkStarted=true; bkStart(); }
+        });
+      });
+    })();
   </script>
 </body>
 </html>

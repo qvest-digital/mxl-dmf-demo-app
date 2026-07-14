@@ -1,0 +1,443 @@
+# SPDX-FileCopyrightText: 2025 Contributors to the Media eXchange Layer project.
+# SPDX-License-Identifier: Apache-2.0
+#
+# MXL writers — one Deployment per flow, one writer container per pod, one
+# v210 static-pattern flow per writer. Each writer is pinned to the node whose
+# index matches its tile (MXL-n -> n0n) via nodeSelector, so placement is
+# deterministic and the kill-and-recover demo is predictable.
+#
+# Consumer note: the compositor + mediamtx are pinned to n01 (there is no
+# writer-free node on a 4-node cluster with 4 pinned writers), so flow 1
+# (MXL-1, on n01) is read locally while flows 2-4 are mirrored cross-node over
+# RDMA. The per-flow metrics panel shows each flow's mirror sourceNode, so the
+# local-vs-RDMA distinction is visible.
+#
+# Patterns are STATIC (smpte/smpte75/smpte100/gradient): animated videotestsrc
+# patterns (snow, ball, zone-plate, ...) hang the testsrc at v210 1080p and
+# freeze the tile. Keep these static.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writer-mxl-1
+  labels:
+    app: writer-mxl-1
+    mxl.qvest-digital.com/role: producer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: writer-mxl-1
+  template:
+    metadata:
+      labels:
+        app: writer-mxl-1
+        mxl-metrics: "true"
+        mxl.qvest-digital.com/role: producer
+    spec:
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: "vpc.amazonaws.com/efa"
+          operator: "Exists"
+          effect: "NoSchedule"
+      imagePullSecrets:
+        - name: demo-app-ghcr-pull
+      initContainers:
+        - name: prepare-domain
+          image: busybox:1.36
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000001
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              chmod 0777 /run/mxl/domain
+              rm -rf "/run/mxl/domain/$MXL_FLOW_ID"*
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      containers:
+        - name: writer-container
+          # MXL-1 runs the ORIGINAL v210-overlay writer (1080p) on purpose:
+          # a side-by-side reference vs the I420/720p tiles (MXL-2..4). The
+          # v210 overlay blend is the slow path — this tile is meant to look it.
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000001
+            - name: MXL_FLOW_PATTERN
+              value: smpte
+            - name: MXL_FLOW_OVERLAY
+              value: MXL-1
+            # All tiles blend overlays directly on 10-bit packed v210 at 720p
+            # (MXL_OVERLAY_FORMAT=v210), not the I420 fast path.
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              FLOW_JSON=/tmp/flow-$MXL_FLOW_ID.json
+              sed "s|5fbec3b1-1b0f-417d-9059-8b94a47197ed|$MXL_FLOW_ID|g" \
+                  /home/mxl/v210_flow.json > "$FLOW_JSON"
+              echo "starting testsrc UUID=$MXL_FLOW_ID pattern=$MXL_FLOW_PATTERN overlay=$MXL_FLOW_OVERLAY"
+              exec /usr/bin/mxl-gst-testsrc \
+                  -d /run/mxl/domain \
+                  -v "$FLOW_JSON" \
+                  -p "$MXL_FLOW_PATTERN" \
+                  -t "$MXL_FLOW_OVERLAY" \
+                  -g "mxl-multiviewer-1"
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK", "SYS_RESOURCE"]
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      volumes:
+        - name: mxl-domain
+          hostPath:
+            path: /run/mxl/domain
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writer-mxl-2
+  labels:
+    app: writer-mxl-2
+    mxl.qvest-digital.com/role: producer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: writer-mxl-2
+  template:
+    metadata:
+      labels:
+        app: writer-mxl-2
+        mxl-metrics: "true"
+        mxl.qvest-digital.com/role: producer
+    spec:
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: "vpc.amazonaws.com/efa"
+          operator: "Exists"
+          effect: "NoSchedule"
+      imagePullSecrets:
+        - name: demo-app-ghcr-pull
+      initContainers:
+        - name: prepare-domain
+          image: busybox:1.36
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000002
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              chmod 0777 /run/mxl/domain
+              rm -rf "/run/mxl/domain/$MXL_FLOW_ID"*
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      containers:
+        - name: writer-container
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000002
+            - name: MXL_FLOW_PATTERN
+              value: ball
+            - name: MXL_FLOW_OVERLAY
+              value: MXL-2
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              FLOW_JSON=/tmp/flow-$MXL_FLOW_ID.json
+              sed "s|5fbec3b1-1b0f-417d-9059-8b94a47197ed|$MXL_FLOW_ID|g" \
+                  /home/mxl/v210_flow.json > "$FLOW_JSON"
+              echo "starting testsrc UUID=$MXL_FLOW_ID pattern=$MXL_FLOW_PATTERN overlay=$MXL_FLOW_OVERLAY"
+              exec /usr/bin/mxl-gst-testsrc \
+                  -d /run/mxl/domain \
+                  -v "$FLOW_JSON" \
+                  -p "$MXL_FLOW_PATTERN" \
+                  -t "$MXL_FLOW_OVERLAY" \
+                  -g "mxl-multiviewer-2"
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK", "SYS_RESOURCE"]
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      volumes:
+        - name: mxl-domain
+          hostPath:
+            path: /run/mxl/domain
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writer-mxl-3
+  labels:
+    app: writer-mxl-3
+    mxl.qvest-digital.com/role: producer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: writer-mxl-3
+  template:
+    metadata:
+      labels:
+        app: writer-mxl-3
+        mxl-metrics: "true"
+        mxl.qvest-digital.com/role: producer
+    spec:
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: "vpc.amazonaws.com/efa"
+          operator: "Exists"
+          effect: "NoSchedule"
+      imagePullSecrets:
+        - name: demo-app-ghcr-pull
+      initContainers:
+        - name: prepare-domain
+          image: busybox:1.36
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000003
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              chmod 0777 /run/mxl/domain
+              rm -rf "/run/mxl/domain/$MXL_FLOW_ID"*
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      containers:
+        - name: writer-container
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000003
+            - name: MXL_FLOW_PATTERN
+              value: gamut
+            - name: MXL_FLOW_OVERLAY
+              value: MXL-3
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              FLOW_JSON=/tmp/flow-$MXL_FLOW_ID.json
+              sed "s|5fbec3b1-1b0f-417d-9059-8b94a47197ed|$MXL_FLOW_ID|g" \
+                  /home/mxl/v210_flow.json > "$FLOW_JSON"
+              echo "starting testsrc UUID=$MXL_FLOW_ID pattern=$MXL_FLOW_PATTERN overlay=$MXL_FLOW_OVERLAY"
+              exec /usr/bin/mxl-gst-testsrc \
+                  -d /run/mxl/domain \
+                  -v "$FLOW_JSON" \
+                  -p "$MXL_FLOW_PATTERN" \
+                  -t "$MXL_FLOW_OVERLAY" \
+                  -g "mxl-multiviewer-3"
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK", "SYS_RESOURCE"]
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      volumes:
+        - name: mxl-domain
+          hostPath:
+            path: /run/mxl/domain
+            type: DirectoryOrCreate
+---
+# 4th flow. The cluster has only 3 producer nodes (n01-03) + n04 (mediamtx).
+# A 4th CROSS-NODE flow would put two writers on one node, and the stock
+# gateway mirrors only one flow per source node (the older one starves). So
+# this writer is pinned to n04 itself: mediamtx reads it from the local
+# /run/mxl/domain, no gateway mirror. The other three stay cross-node RDMA.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writer-mxl-4
+  labels:
+    app: writer-mxl-4
+    mxl.qvest-digital.com/role: producer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: writer-mxl-4
+  template:
+    metadata:
+      labels:
+        app: writer-mxl-4
+        mxl-metrics: "true"
+        mxl.qvest-digital.com/role: producer
+    spec:
+      # Spread writers across nodes (portable: no hard hostname pinning, which
+      # only exists on the sc cluster). On a 4-node cluster each writer lands on
+      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
+      # a 2-node cluster (EKS) they pack and still schedule.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: "vpc.amazonaws.com/efa"
+          operator: "Exists"
+          effect: "NoSchedule"
+      imagePullSecrets:
+        - name: demo-app-ghcr-pull
+      initContainers:
+        - name: prepare-domain
+          image: busybox:1.36
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000004
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              chmod 0777 /run/mxl/domain
+              rm -rf "/run/mxl/domain/$MXL_FLOW_ID"*
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      containers:
+        - name: writer-container
+          image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MXL_FLOW_ID
+              value: d4d00000-0000-0000-0000-000000000004
+            - name: MXL_FLOW_PATTERN
+              value: checkers-8
+            - name: MXL_FLOW_OVERLAY
+              value: MXL-4
+            - name: MXL_OVERLAY_FORMAT
+              value: v210
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              FLOW_JSON=/tmp/flow-$MXL_FLOW_ID.json
+              sed "s|5fbec3b1-1b0f-417d-9059-8b94a47197ed|$MXL_FLOW_ID|g" \
+                  /home/mxl/v210_flow.json > "$FLOW_JSON"
+              echo "starting testsrc UUID=$MXL_FLOW_ID pattern=$MXL_FLOW_PATTERN overlay=$MXL_FLOW_OVERLAY"
+              exec /usr/bin/mxl-gst-testsrc \
+                  -d /run/mxl/domain \
+                  -v "$FLOW_JSON" \
+                  -p "$MXL_FLOW_PATTERN" \
+                  -t "$MXL_FLOW_OVERLAY" \
+                  -g "mxl-multiviewer-4"
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK", "SYS_RESOURCE"]
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: mxl-domain
+              mountPath: /run/mxl/domain
+      volumes:
+        - name: mxl-domain
+          hostPath:
+            path: /run/mxl/domain
+            type: DirectoryOrCreate

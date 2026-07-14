@@ -31,13 +31,8 @@ spec:
       # pods. Co-location is required because hostPath domain mounts
       # are per-node; running mediamtx on a different node from the
       # compositor would give it an empty /run/mxl/domain.
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: composite
-              topologyKey: kubernetes.io/hostname
+      # No node pinning: schedule anywhere; the operator targets each
+      # flow's mirror at whatever node mediamtx lands on (adaptive, portable).
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -60,7 +55,7 @@ spec:
         - name: mediamtx
           # Upstream image built + pushed by qvest-digital/mediamtx CI on
           # the feature/mxl-static-source branch (workflow: mxl-image.yml).
-          image: ghcr.io/qvest-digital/mxl-dmf-demo-app/mediamtx-mxl:latest
+          image: ghcr.io/qvest-digital/mediamtx-mxl:ecbae6487474ff7c5fab8970289a07403f78efdd
           imagePullPolicy: Always
           env:
             - name: LD_PRELOAD

@@ -3,31 +3,20 @@
 # per (flow, target-node) and the gateway DaemonSet sets up the
 # libmxl-fabrics handshake against the producer node.
 #
-# podSelector matches every Pod labelled
-# mxl.qvest-digital.com/role=consumer in the default namespace —
-# currently that's the compositor + mediamtx (both co-located on the
-# same node, so they share a single mirror per flow).
+# podSelector matches every Pod labelled mxl.qvest-digital.com/role=
+# consumer — the compositor + mediamtx (co-located on one node, sharing
+# a single mirror per flow).
 #
-# Producer side: writer-media-function-efa in mxl-dmf-terraform's
-# k8s/base/writer-deployment.yaml, label
-# mxl.qvest-digital.com/role=producer.
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-stream-native
-spec:
-  flowID: "5fbec3b1-1b0f-417d-9059-8b94a47197ed"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
+# Multiviewer flows 1-4 == the four writer-mxl-{1..4} Deployments in
+# writer-deployment.yaml == tiles MXL-1..4. provider here is the base
+# (EKS/EFA) default; the sc overlay patches it to verbs for the on-prem
+# RDMAoE fabric.
 apiVersion: mxl.qvest-digital.com/v1alpha1
 kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-1
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000001"
+  flowID: "d4d00000-0000-0000-0000-000000000001"
   provider: tcp
   podSelector:
     matchLabels:
@@ -38,7 +27,7 @@ kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-2
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000002"
+  flowID: "d4d00000-0000-0000-0000-000000000002"
   provider: tcp
   podSelector:
     matchLabels:
@@ -49,62 +38,21 @@ kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-3
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000003"
+  flowID: "d4d00000-0000-0000-0000-000000000003"
   provider: tcp
   podSelector:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
 ---
+# 4th flow — produced locally on n04 (writer-mxl-4), read by mediamtx on the
+# same node. The receiver still authorizes mediamtx to open the flow via the
+# intent-shim even though there's no cross-node mirror.
 apiVersion: mxl.qvest-digital.com/v1alpha1
 kind: MxlReceiver
 metadata:
   name: mxl-multiviewer-4
 spec:
-  flowID: "a1000000-0000-0000-0000-000000000004"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-5
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000005"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-6
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000006"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-7
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000007"
-  provider: tcp
-  podSelector:
-    matchLabels:
-      mxl.qvest-digital.com/role: consumer
----
-apiVersion: mxl.qvest-digital.com/v1alpha1
-kind: MxlReceiver
-metadata:
-  name: mxl-multiviewer-8
-spec:
-  flowID: "a1000000-0000-0000-0000-000000000008"
+  flowID: "d4d00000-0000-0000-0000-000000000004"
   provider: tcp
   podSelector:
     matchLabels:
@@ -112,13 +60,99 @@ spec:
 ---
 # txDarwin output flow (produced by txdarwin-mxl-pipeline in
 # mxl-dmf-txdarwin-flux). Consumed by txdarwin-output-viewer, which
-# RTSP-publishes it to mediamtx path `txdarwin-out`.
+# RTSP-publishes it to mediamtx path `txdarwin-out`. Orthogonal to the
+# multiviewer; kept so the txdarwin demo path keeps working.
 apiVersion: mxl.qvest-digital.com/v1alpha1
 kind: MxlReceiver
 metadata:
   name: txdarwin-output
 spec:
   flowID: "c3000000-0000-0000-0000-000000000001"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+# DMF-231 live SRT ingest flow (produced by the mxl-dmf-demo-srt-ingest
+# bridge from a public SRT source). Consumed by mediamtx path `srt-camera`,
+# which serves it at /hls/srt-camera. Without this intent the mxl-k8s
+# intent-shim blocks mediamtx's open of the flow.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: srt-ingest-b2000000
+spec:
+  flowID: "b2000000-0000-0000-0000-000000000001"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+# DMF-298/303 showcase: writer output of the per-booking txDarwin instance
+# "ac3demo" (deterministic id: c3…-shasum("ac3demo")[0:12]). Lets mediamtx
+# open the flow (intent-shim) and the operator mirror it cross-node for the
+# `txdarwin-ac3demo-out` panel.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: txdarwin-ac3demo-output
+spec:
+  flowID: "c3000000-0000-0000-0000-9d18249f84f4"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+# DMF-298/303 booking demo: writer outputs of the per-booking instances the
+# MediaOps templates deploy ("t1"/"t2"). Deterministic ids as above, so the
+# receivers stay valid across every re-deploy of those bookings. Without
+# these the intent-shim never lets mediamtx open the flow, and the demo tiles
+# stay black even while the instance is up.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: txdarwin-t1-output
+spec:
+  flowID: "c3000000-0000-0000-0000-e5353879bd69"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: txdarwin-t2-output
+spec:
+  flowID: "c3000000-0000-0000-0000-2a5bd02710e9"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+# Sources 2 and 3 (DMF-298/303 templates). Source 1 has had a receiver all
+# along, which is why a txDarwin instance on the other node could read it: the
+# receiver is what makes the mxl-k8s operator mirror a flow cross-node. Without
+# these two, template-2's first flow (source 2) never reaches an instance that
+# lands away from the bridges — seen live: reader up, zero bitrate, no mirror
+# CR for b2…002 while b2…001 had one and flowed.
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: srt-source-2
+spec:
+  flowID: "b2000000-0000-0000-0000-000000000002"
+  provider: tcp
+  podSelector:
+    matchLabels:
+      mxl.qvest-digital.com/role: consumer
+---
+apiVersion: mxl.qvest-digital.com/v1alpha1
+kind: MxlReceiver
+metadata:
+  name: srt-source-3
+spec:
+  flowID: "b2000000-0000-0000-0000-000000000003"
   provider: tcp
   podSelector:
     matchLabels:

@@ -1,0 +1,160 @@
+# demo-metrics: per-flow metrics aggregator + flow-kill control for the
+# multiviewer client. Dependency-free Python (aggregator.py, mounted from the
+# demo-metrics-script ConfigMap) on stock python:3-slim. Reads the compositor
+# /stats + k8s pod/MXL-CR state with a scoped ServiceAccount and serves
+# /api/flows; POST /api/kill/<n> deletes the writer-mxl-<n> pod so the demo can
+# show the compositor watchdog recovering a tile.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demo-metrics
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: demo-metrics
+rules:
+  # Writer/compositor/mediamtx pods — read for status, delete for the kill button.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, delete]
+  # Flow control-plane CRs for the per-flow detail panels.
+  - apiGroups: [mxl.qvest-digital.com]
+    resources: [mxlflows, mxlreceivers, mxlflowmirrors]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: demo-metrics
+subjects:
+  - kind: ServiceAccount
+    name: demo-metrics
+---
+# Cluster-wide pod READ for the gateway-health view in mxl-system. Cluster
+# scoped (not a namespaced Role) so Flux's targetNamespace can't rewrite it
+# into demo-app. Read-only; pod DELETE stays the demo-app Role above, so the
+# kill button can only ever touch demo-app writers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: demo-metrics-podread
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  # MxlFlow is CLUSTER-scoped, so it needs a ClusterRole (not the namespaced
+  # Role). Without this the aggregator's MxlFlow query 403s -> originFresh reads
+  # as unknown -> every flow shows a red/"down" dot even while the streams run.
+  - apiGroups: [mxl.qvest-digital.com]
+    resources: [mxlflows]
+    verbs: [get, list]
+  # DMF-298/303 booking screen: the per-booking instances live in the txdarwin
+  # namespace, not in demo-app's, so these reads need the ClusterRole too.
+  # Read-only — the showcase observes the booking lifecycle, it never drives it.
+  - apiGroups: [dmf.qvest-digital.com]
+    resources: [mediafunctioninstances]
+    verbs: [get, list]
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: demo-metrics-podread
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: demo-metrics-podread
+subjects:
+  # Bind both namespaces: SA is demo-metrics/demo-app on sc, demo-metrics/default
+  # on EKS (Flux targetNamespace). ClusterRoleBinding subject NS isn't rewritten,
+  # so without the default entry the EKS SA 403s on mxlflows -> red dots.
+  - kind: ServiceAccount
+    name: demo-metrics
+    namespace: demo-app
+  - kind: ServiceAccount
+    name: demo-metrics
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-metrics
+  labels:
+    app: demo-metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-metrics
+  template:
+    metadata:
+      labels:
+        app: demo-metrics
+    spec:
+      serviceAccountName: demo-metrics
+      containers:
+        - name: aggregator
+          image: python:3.12-slim
+          command: ["python", "/app/aggregator.py"]
+          env:
+            # DEMO_NS unset on purpose: aggregator reads its own pod namespace
+            # (demo-app on sc, default on EKS). Hardcoding broke EKS queries.
+            - name: GW_NS
+              value: mxl-system
+            - name: FLOW_PREFIX
+              value: d4d00000-0000-0000-0000-00000000000
+            - name: N_FLOWS
+              value: "4"
+            - name: COMPOSITOR_STATS
+              value: http://composite:9090/
+            # Namespace the per-booking txDarwin instances are deployed into
+            # (see mxl-dmf-txdarwin-flux: the deploy workflow rejects any other).
+            - name: BOOKING_NS
+              value: txdarwin
+          ports:
+            - name: http
+              containerPort: 8088
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8088 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8088 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+      volumes:
+        - name: script
+          configMap:
+            name: demo-metrics-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-metrics
+  labels:
+    app: demo-metrics
+spec:
+  type: ClusterIP
+  selector:
+    app: demo-metrics
+  ports:
+    - name: http
+      port: 8088
+      targetPort: 8088

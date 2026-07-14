@@ -2,24 +2,32 @@ logLevel: info
 
 webrtc: true
 webrtcAddress: :8889
+# ICE media goes over a dedicated UDP mux port, exposed via its own
+# LoadBalancer (mediamtx-webrtc-udp.yaml). webrtcAdditionalHosts is that
+# LB's IP, advertised as mediamtx's ICE candidate so the browser reaches the
+# RTP directly. NOTE: 10.20.53.107 is the sc/MetalLB (internal) IP; a public
+# cluster needs its own external IP here.
+webrtcLocalUDPAddress: :8189
+# Both clusters' ICE hosts. mediamtx advertises both as candidates; each
+# browser reaches only its own (sc client -> 10.20.53.107 internal; EKS client
+# -> the public NLB behind webrtc.demo.dmf) and ICE ignores the unreachable one.
+webrtcAdditionalHosts: [10.20.53.107, webrtc.demo.dmf.qvest-digital.com]
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
 
 hls: true
 hlsAddress: :8888
 hlsAlwaysRemux: true
-hlsVariant: lowLatency
-# Tight muxer state so clients land near the live edge. Default
-# hlsSegmentCount=7 with ~1s segments meant up to 7s of stale
-# segments could be served first; combined with ffmpeg back-pressure
-# on the native path that produced visible multi-minute drift between
-# the two MXL tiles. Keep just enough history for HLS-LL part
-# rewind without trapping the player in the past.
-# hlsVariant: lowLatency mandates hlsSegmentCount >= 7. Keep at the
-# minimum + short segments so playlist history stays small and clients
-# land near the live edge. Player-side aggressive follow lives in the
-# hls.js init in config/index.html.
+# Standard MPEG-TS HLS, NOT low-latency. LL-HLS (parts, hlsPartDuration)
+# combined with hls.js edge-chasing made the player micro-rewind — it
+# re-displayed already-shown frames, so the burned-in clock appeared to
+# flap backward even though the encoded stream is strictly monotonic
+# (verified: ffmpeg decodes the segments in order). Classic segmented HLS
+# plays smoothly and monotonically at the cost of a few seconds of
+# latency, which is fine for a multiviewer.
+hlsVariant: mpegts
 hlsSegmentCount: 7
 hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
 
 rtsp: true
 rtspAddress: :8554
@@ -33,85 +41,64 @@ paths:
   # path on this node; the producer side runs on a different node and
   # writes into its own /run/mxl/domain — the gateway bridges them.
   #
-  # Eight MXL paths corresponding to the eight UUIDs in the writer
-  # deployment's MXL_FLOW_IDS env var. The first one is the legacy
-  # single-flow demo (kept always-on); the others stay on-demand so
-  # they don't burn CPU until a viewer actually requests them.
-  mxl-stream-native:
-    source: mxl:///run/mxl/domain/5fbec3b1-1b0f-417d-9059-8b94a47197ed
-    # Keep the libmxl reader + ffmpeg encoder running 24/7. With
-    # sourceOnDemand=true, the first viewer paid ~1-2s of cold-start
-    # latency on every transition from idle to active: libx264 init +
-    # filling the first GOP + draining the stdin/stdout pipes.
+  # Four on-demand MXL paths, one per multiviewer flow (a1..0001-0004 ==
+  # tiles MXL-1..4). On-demand so single-tile inspection is possible
+  # without burning encoder CPU until a viewer actually requests a tile;
+  # the multiviewer page itself plays the pre-composited mosaic
+  # (/hls/composite) and never touches these.
+  mxl-1:
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000001
     sourceOnDemand: false
-    mxlH264Preset: veryfast
-    mxlH264Profile: high
-    mxlH264Bitrate: 5000000
-
-  mxl-stream-2:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000001
-    sourceOnDemand: true
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
+    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
+    # keyframe to cut a 1s segment on. Without it, high-complexity content
+    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
+    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
+    # patterns (bars, ball) happened to emit IDRs often enough to work.
+    mxlH264IDRPeriod: 30
 
-  mxl-stream-3:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000002
-    sourceOnDemand: true
+  mxl-2:
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000002
+    sourceOnDemand: false
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
+    mxlH264IDRPeriod: 30
 
-  mxl-stream-4:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000003
-    sourceOnDemand: true
+  mxl-3:
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000003
+    sourceOnDemand: false
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
+    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
+    # keyframe to cut a 1s segment on. Without it, high-complexity content
+    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
+    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
+    # patterns (bars, ball) happened to emit IDRs often enough to work.
+    mxlH264IDRPeriod: 30
 
-  mxl-stream-5:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000004
-    sourceOnDemand: true
+  mxl-4:
+    source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000004
+    sourceOnDemand: false
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
+    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
+    # keyframe to cut a 1s segment on. Without it, high-complexity content
+    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
+    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
+    # patterns (bars, ball) happened to emit IDRs often enough to work.
+    mxlH264IDRPeriod: 30
 
-  mxl-stream-6:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000005
-    sourceOnDemand: true
-    mxlH264Preset: ultrafast
-    mxlH264Profile: high
-    mxlH264Bitrate: 3000000
-
-  mxl-stream-7:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000006
-    sourceOnDemand: true
-    mxlH264Preset: ultrafast
-    mxlH264Profile: high
-    mxlH264Bitrate: 3000000
-
-  mxl-stream-8:
-    source: mxl:///run/mxl/domain/a1000000-0000-0000-0000-000000000007
-    sourceOnDemand: true
-    mxlH264Preset: ultrafast
-    mxlH264Profile: high
-    mxlH264Bitrate: 3000000
-
-  # SRT-bridge baseline: Sintel (Blender Foundation, CC-BY 3.0) looped via
-  # ffmpeg → SRT → mediamtx. Kept as the comparison reference for the
-  # MXL-vs-SRT latency story in the multiviewer DRIFT readout — pulling
-  # this would erase the only non-MXL tile and leave the metric without a
-  # control group.
-  sintel:
-    source: srt://loop-sintel:9000?mode=caller
-    sourceOnDemand: true
-
-  # Compositor sink. The composite pod (ffmpeg in k8s/composite-deployment.yaml)
-  # pulls all nine tile paths back via SRT, builds a 3x3 mosaic with burned-in
-  # tile labels + global clock, and pushes the mosaic here. No source: line =
-  # publisher-mode path, ready to receive an SRT/RTSP/RTMP/WebRTC publisher.
-  # The multiviewer landing page plays /hls/composite/index.m3u8 directly so
-  # the demo is one shareable URL with no per-tile JS player pool.
+  # Compositor sink. The composite pod (k8s/composite-deployment.yaml)
+  # reads the four MXL flows zero-copy, builds the 2x2 mosaic with
+  # burned-in tile labels + global clock, and pushes the mosaic here.
+  # No source: line = publisher-mode path. The multiviewer landing page
+  # plays /hls/composite/index.m3u8 directly so the demo is one
+  # shareable URL.
   composite: {}
 
   # txDarwin output. Publisher-mode (no source: line) — the
@@ -119,3 +106,59 @@ paths:
   # flow c3000000 and RTSP-publishes the encoded result here. Played at
   # /hls/txdarwin-out/index.m3u8 (UI source toggle in config/index.html).
   txdarwin-out: {}
+
+  # DMF-231 live SRT ingest. The mxl-dmf-demo-srt-ingest bridge ingests a
+  # public SRT stream (srt-ingest.dmf.qvest-digital.com:9000) and writes MXL
+  # flow b2000000. mediamtx reads it zero-copy and serves /hls/srt-camera.
+  # Needs the matching MxlReceiver in mxl-receivers.yaml so the mxl-k8s
+  # intent-shim lets mediamtx open the flow. sourceOnDemand must be false:
+  # with hlsAlwaysRemux:true (above) mediamtx does NOT start an on-demand
+  # source from an HLS request, so an on-demand srt-camera never comes online
+  # (same reason mxl-stream-native is always-on). When the camera isn't
+  # streaming the MXL reader just logs "flow not found" and retries — harmless.
+  # DMF-298/303 showcase: output of the per-booking txDarwin instance
+  # named "ac3demo". The deploy workflow derives writer flow ids
+  # deterministically (c3…-shasum(name)[0:12]), so this id is stable for
+  # that instance name across re-deploys. Baseline profile for WebRTC,
+  # same reasoning as srt-camera.
+  txdarwin-ac3demo-out:
+    source: mxl:///run/mxl/domain/c3000000-0000-0000-0000-9d18249f84f4
+    sourceOnDemand: false
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
+    mxlH264Bitrate: 5000000
+    mxlH264IDRPeriod: 30
+
+  # DMF-298/303 booking demo: outputs of the two per-booking instances the
+  # MediaOps templates deploy ("t1" = template-1 / 2 sources, "t2" =
+  # template-2 / 3 sources). Same deterministic writer-flow convention as
+  # ac3demo above, so these ids survive re-deploys. Both are always-on: the
+  # tiles must go black on teardown rather than keep an on-demand source
+  # alive, that black frame IS the demo's teardown evidence.
+  txdarwin-t1-out:
+    source: mxl:///run/mxl/domain/c3000000-0000-0000-0000-e5353879bd69
+    sourceOnDemand: false
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
+    mxlH264Bitrate: 5000000
+    mxlH264IDRPeriod: 30
+
+  txdarwin-t2-out:
+    source: mxl:///run/mxl/domain/c3000000-0000-0000-0000-2a5bd02710e9
+    sourceOnDemand: false
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
+    mxlH264Bitrate: 5000000
+    mxlH264IDRPeriod: 30
+
+  srt-camera:
+    source: mxl:///run/mxl/domain/b2000000-0000-0000-0000-000000000001
+    sourceOnDemand: false
+    # Baseline profile (like the mxl-1..4 tiles, avc1.42..) so browser WebRTC
+    # decoders can render it. Main/High H264 connects over WHEP but renders black,
+    # forcing the HLS fallback and its multi-second lag. srt-camera is the live
+    # ingest where sub-second WebRTC latency is the whole point, so it must be
+    # baseline. ultrafast disables CABAC/8x8dct -> Constrained Baseline output.
+    mxlH264Preset: ultrafast
+    mxlH264Profile: baseline
+    mxlH264Bitrate: 5000000

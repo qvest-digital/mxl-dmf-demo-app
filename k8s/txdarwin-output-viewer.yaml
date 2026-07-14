@@ -34,15 +34,30 @@ spec:
         app: txdarwin-output-viewer
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Land on a non-producer node (same placement rule as the composite),
-      # so the gateway bridges c3000000 across nodes like the other flows.
+      # Co-locate with composite so all consumers share one node, leaving the
+      # other node free for the writer (producer). The podAntiAffinity keeps
+      # this pod off the producer node as before; the podAffinity pulls it
+      # onto the composite node so the scheduler has a valid 2-node placement.
       affinity:
-        podAntiAffinity:
+        podAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
-                  mxl.qvest-digital.com/role: producer
+                  app: composite
               topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          # Prefer a producer-free node (sc has one), but don't require it: on a
+          # 2-node cluster (EKS) the compositor shares its node with writers, so
+          # a required rule here plus the required composite affinity is
+          # unsatisfiable -> pod Pending -> demo-app health gate + the terraform
+          # fluxcd-bootstrap step time out.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    mxl.qvest-digital.com/role: producer
+                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -69,6 +84,15 @@ spec:
             # one-tile output when MXL_FLOW_IDS has a single entry.
             - name: MXL_FLOW_IDS
               value: "c3000000-0000-0000-0000-000000000001"
+            # Grain geometry. The viewer/compositor defaults to 1920x1080, but
+            # txDarwin now passes through the 720p input, so c3000000 is v210 at
+            # 1296x720. Without this the reader wraps each grain at the wrong
+            # size -> "invalid video buffer received" in videoconvert -> no
+            # output. Must match the txDarwin MxlWriter frameWidth/frameHeight.
+            - name: MXL_FRAME_WIDTH
+              value: "1296"
+            - name: MXL_FRAME_HEIGHT
+              value: "720"
             - name: LD_PRELOAD
               value: /opt/mxl-intent/libmxl-intent.so
           securityContext:
