@@ -2,19 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # MXL writers — one Deployment per flow, one writer container per pod, one
-# v210 static-pattern flow per writer. Each writer is pinned to the node whose
-# index matches its tile (MXL-n -> n0n) via nodeSelector, so placement is
-# deterministic and the kill-and-recover demo is predictable.
+# v210 test-pattern flow per writer (flow d4d…000n = tile MXL-n). Writers
+# spread across nodes via soft anti-affinity (comment at each Deployment);
+# the compositor + mediamtx co-locate on one node, so a writer on another
+# node reaches them as a cross-node RDMA mirror, while a writer that shares
+# their node is read locally. The per-flow metrics panel shows each mirror's
+# sourceNode, so the local-vs-RDMA distinction stays visible.
 #
-# Consumer note: the compositor + mediamtx are pinned to n01 (there is no
-# writer-free node on a 4-node cluster with 4 pinned writers), so flow 1
-# (MXL-1, on n01) is read locally while flows 2-4 are mirrored cross-node over
-# RDMA. The per-flow metrics panel shows each flow's mirror sourceNode, so the
-# local-vs-RDMA distinction is visible.
-#
-# Patterns are STATIC (smpte/smpte75/smpte100/gradient): animated videotestsrc
-# patterns (snow, ball, zone-plate, ...) hang the testsrc at v210 1080p and
-# freeze the tile. Keep these static.
+# Patterns are set per writer via MXL_FLOW_PATTERN. An earlier 1080p setup
+# could not run animated videotestsrc patterns (snow, ball, zone-plate hung
+# the testsrc at v210 1080p); at the current 720p geometry they work —
+# MXL-2 runs ball.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,10 +35,11 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes (portable: no hard hostname pinning, which
-      # only exists on the sc cluster). On a 4-node cluster each writer lands on
-      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
-      # a 2-node cluster (EKS) they pack and still schedule.
+      # Spread writers across nodes with a soft rule instead of hostname
+      # pinning (hostnames differ per cluster). On a 4-node cluster each
+      # writer gets its own node, one flow per node, which the stock gateway
+      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
+      # schedule.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -76,9 +75,6 @@ spec:
               mountPath: /run/mxl/domain
       containers:
         - name: writer-container
-          # MXL-1 runs the ORIGINAL v210-overlay writer (1080p) on purpose:
-          # a side-by-side reference vs the I420/720p tiles (MXL-2..4). The
-          # v210 overlay blend is the slow path — this tile is meant to look it.
           image: ghcr.io/qvest-digital/mxl-dmf-writer:e5cf194066bf509a55409c367940206ff4b7024c
           imagePullPolicy: IfNotPresent
           env:
@@ -146,10 +142,11 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes (portable: no hard hostname pinning, which
-      # only exists on the sc cluster). On a 4-node cluster each writer lands on
-      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
-      # a 2-node cluster (EKS) they pack and still schedule.
+      # Spread writers across nodes with a soft rule instead of hostname
+      # pinning (hostnames differ per cluster). On a 4-node cluster each
+      # writer gets its own node, one flow per node, which the stock gateway
+      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
+      # schedule.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -250,10 +247,11 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes (portable: no hard hostname pinning, which
-      # only exists on the sc cluster). On a 4-node cluster each writer lands on
-      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
-      # a 2-node cluster (EKS) they pack and still schedule.
+      # Spread writers across nodes with a soft rule instead of hostname
+      # pinning (hostnames differ per cluster). On a 4-node cluster each
+      # writer gets its own node, one flow per node, which the stock gateway
+      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
+      # schedule.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -333,11 +331,10 @@ spec:
             path: /run/mxl/domain
             type: DirectoryOrCreate
 ---
-# 4th flow. The cluster has only 3 producer nodes (n01-03) + n04 (mediamtx).
-# A 4th CROSS-NODE flow would put two writers on one node, and the stock
-# gateway mirrors only one flow per source node (the older one starves). So
-# this writer is pinned to n04 itself: mediamtx reads it from the local
-# /run/mxl/domain, no gateway mirror. The other three stay cross-node RDMA.
+# 4th flow — same setup as the others. When node count forces a writer onto
+# the consumers' node, that flow is read locally from /run/mxl/domain with no
+# gateway mirror; the aggregator counts a mirror-less flow as live for the
+# same reason (see aggregator.py).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -359,10 +356,11 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes (portable: no hard hostname pinning, which
-      # only exists on the sc cluster). On a 4-node cluster each writer lands on
-      # its own node -> 1 flow/node, which the stock gateway mirrors cleanly; on
-      # a 2-node cluster (EKS) they pack and still schedule.
+      # Spread writers across nodes with a soft rule instead of hostname
+      # pinning (hostnames differ per cluster). On a 4-node cluster each
+      # writer gets its own node, one flow per node, which the stock gateway
+      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
+      # schedule.
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

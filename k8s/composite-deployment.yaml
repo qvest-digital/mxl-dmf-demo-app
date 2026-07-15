@@ -1,14 +1,14 @@
 ---
 # Multi-flow MXL compositor — consumer side of the mxl-k8s control plane.
 #
-# Reads all nine MXL flows from /run/mxl/domain via libmxl (zero-copy,
-# no per-flow decode pass), composites with a GStreamer compositor
-# element, encodes the mosaic once with x264, pushes the result to
-# mediamtx via RTSP.
+# Reads the MXL flows listed in MXL_FLOW_IDS (currently four) from
+# /run/mxl/domain via libmxl (zero-copy, no per-flow decode pass),
+# composites with a GStreamer compositor element, encodes the mosaic once
+# with x264, pushes the result to mediamtx via RTSP.
 #
 # Where the flows come from:
-#   - Writer pod (mxl-dmf-terraform) writes flows to /run/mxl/domain on
-#     its node.
+#   - Writer pods (writer-deployment.yaml) write flows to /run/mxl/domain
+#     on their nodes.
 #   - mxl-k8s gateway DaemonSet bridges the flow grains across nodes
 #     via libmxl-fabrics (EFA provider).
 #   - mxl-k8s agent DaemonSet on this node materializes the mirror at
@@ -121,7 +121,7 @@ spec:
             - name: agent-sock
               mountPath: /run/mxl/agent.sock
           resources:
-            # Worst-case mmap footprint per flow ≈ 40 MB; nine flows
+            # Worst-case mmap footprint per flow ≈ 40 MB; four flows
             # plus gst pipeline buffers plus x264 working set fit in
             # ~2 Gi steady, 8 Gi covers keyframe bursts.
             requests:

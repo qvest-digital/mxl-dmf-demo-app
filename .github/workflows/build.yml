@@ -1,8 +1,8 @@
 name: Push manifests
 
-# This repo no longer builds any image. mediamtx-mxl is published by
-# qvest-digital/mediamtx CI (feature/mxl-static-source); libmxl is published
-# by qvest-digital/mxl-dmf-demo CI. All we do here is render the k8s
+# This workflow builds no image — the compositor image has its own workflow
+# (build-compositor.yml); mediamtx-mxl is published by qvest-digital/mediamtx
+# CI (feature/mxl-static-source). All this one does is render the k8s
 # manifests and push them as an OCI artifact for Flux to reconcile.
 #
 # PR env integration (called by mxl-dmf-terraform cd-pr-feature-up.yml):

@@ -55,8 +55,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # mxl-k8s-compatible variant: layered on jonasohland/mxl so the
-      # libmxl runtime matches the gateway. Published under -mxlk8s suffix.
+      # mxl-k8s-compatible variant: built on the go-mxl builder/runtime
+      # images so the libmxl runtime matches the gateway (see
+      # Dockerfile.mxlk8s). Published under the -mxlk8s suffix.
       - name: Build & push (mxl-k8s)
         uses: docker/build-push-action@v6
         with:
