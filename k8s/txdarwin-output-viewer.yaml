@@ -34,10 +34,13 @@ spec:
         app: txdarwin-output-viewer
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Co-locate with composite so all consumers share one node, leaving the
-      # other node free for the writer (producer). The podAntiAffinity keeps
-      # this pod off the producer node as before; the podAffinity pulls it
-      # onto the composite node so the scheduler has a valid 2-node placement.
+      # Placement: the required podAffinity pins this pod to the composite
+      # node, so all consumers share one node. The podAntiAffinity steers it
+      # away from producer nodes, but only as a preference. It must not be a
+      # hard rule: on a two-node EKS cluster the composite shares its node
+      # with the writers, so requiring both "with composite" and "not with
+      # producers" leaves no valid node. The pod would stay Pending until the
+      # demo-app health gate and the terraform fluxcd-bootstrap step time out.
       affinity:
         podAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -46,11 +49,6 @@ spec:
                   app: composite
               topologyKey: kubernetes.io/hostname
         podAntiAffinity:
-          # Prefer a producer-free node (sc has one), but don't require it: on a
-          # 2-node cluster (EKS) the compositor shares its node with writers, so
-          # a required rule here plus the required composite affinity is
-          # unsatisfiable -> pod Pending -> demo-app health gate + the terraform
-          # fluxcd-bootstrap step time out.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               podAffinityTerm:

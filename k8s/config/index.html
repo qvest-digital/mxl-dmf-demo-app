@@ -60,14 +60,9 @@
   @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
 
   .stage-wrap { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  /* No forced aspect — the video shows at its native ratio (the mosaic
-     layout changes: 2x2, a tall 1x3 column, etc.), height-capped to the
-     viewport and centered. Avoids pillar/letterbox black bars around a
-     non-16:9 mosaic. */
-  /* Three adjacent per-flow HLS players (no compositor). Each flow is encoded
-     to its own HLS rendition by mediamtx reading the cross-node RDMA mirror;
-     each card carries a qvest lime badge naming the producing node. */
-  /* Two columns: MXL-1 + MXL-2 on row 1, MXL-3 flows to row 2. */
+  /* Four per-flow players in a 2x2 grid. mediamtx encodes each flow to its
+     own rendition from the RDMA mirror (WebRTC first, HLS fallback — see
+     startPlayer); the badge above each card names the producing node. */
   .players { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0; align-items: start; }
   .playercard { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
   .pc-video {

@@ -1,6 +1,6 @@
 // mxl-multi-compositor
 //
-// Reads N MXL flows directly from /dev/shm via libmxl (zero-copy, no
+// Reads N MXL flows directly from the MXL domain (tmpfs) via libmxl (zero-copy, no
 // per-flow decode pass), lays them out in a single GStreamer compositor
 // element, encodes the mosaic once with x264, and pushes the result to
 // mediamtx via RTSP. Bypasses mediamtx's per-flow encoder backlog so the
@@ -49,9 +49,7 @@ namespace
     // Per-flow source dimensions. The MXL flow config exposes grain rate and
     // slice sizes but not width/height, so the tile resolution is taken from
     // MXL_FRAME_WIDTH / MXL_FRAME_HEIGHT (set to match the producer's flow
-    // descriptor). Defaults to 1080p for backwards compatibility. Producing at
-    // tile resolution (tiles are 426x238) instead of 1080p cuts the per-grain
-    // payload ~20x — less producer load and less fabric traffic.
+    // descriptor). Defaults to 1080p for backwards compatibility.
     int g_frameW = 1920;
     int g_frameH = 1080;
 
@@ -265,7 +263,7 @@ namespace
         // at 6-7 of 9 tiles and starved the rest to 0 fps; the realign churn on
         // the starved tiles also flickered the mosaic. Now we sample the newest
         // finished grain (head - kLagGrains) once per grain period and skip the
-        // rest, so read/decode load stays at 9 x 30 fps regardless of writer
+        // rest, so read/decode load stays at N x 30 fps regardless of writer
         // speed. Re-reading the head each tick also leaves no cursor to wedge
         // when a flow's index jumps or it restarts.
         auto const period = std::chrono::nanoseconds{
@@ -630,8 +628,8 @@ int main(int argc, char** argv)
         //    gives x264 enough lookahead to make better mode decisions
         //    than ultrafast. veryfast/faster is the usual broadcast-
         //    sweet-spot for 720p30.
-        //  - bitrate=6000 (kbps): 4× the x264enc default of 2048, big
-        //    quality bump for 1280x720 with eight detail-rich tiles.
+        //  - bitrate: 6000 kbps at the 720p baseline, scaled linearly
+        //    with canvas area (bitrateKbps above).
         //  - bframes=2: better compression efficiency at +1 frame of
         //    encode latency (negligible vs HLS segment latency).
         //  - profile=main: enables CABAC + B-frames vs baseline.

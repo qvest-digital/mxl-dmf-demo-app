@@ -7,9 +7,8 @@ metadata:
     mxl.qvest-digital.com/role: consumer
 spec:
   replicas: 1
-  # Recreate: hostPath ties the pod to a specific node; rolling update
-  # would briefly schedule two pods against the same hostPath on the
-  # same node — harmless for the read side but keeps topology tidy.
+  # Recreate: a rolling update would briefly run two pods against the same
+  # hostPath MXL domain and the same published paths.
   strategy:
     type: Recreate
   selector:
@@ -25,14 +24,12 @@ spec:
         # mirrors the compositor uses on the same node.
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Co-locate with the compositor: both pods read the same MXL
-      # mirrors from /run/mxl/domain on the same node, and the mxl-k8s
-      # gateway is the one doing the cross-node bridging — not these
-      # pods. Co-location is required because hostPath domain mounts
-      # are per-node; running mediamtx on a different node from the
-      # compositor would give it an empty /run/mxl/domain.
-      # No node pinning: schedule anywhere; the operator targets each
-      # flow's mirror at whatever node mediamtx lands on (adaptive, portable).
+      # mediamtx is unpinned: it schedules anywhere and the operator targets
+      # each flow's mirror at whatever node it lands on. The compositor then
+      # co-locates with it (required podAffinity in composite-deployment.yaml)
+      # because hostPath domain mounts are per-node — on any other node the
+      # compositor would see an empty /run/mxl/domain. Cross-node bridging is
+      # the mxl-k8s gateway's job, not these pods'.
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"

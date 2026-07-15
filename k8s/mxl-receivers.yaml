@@ -44,9 +44,10 @@ spec:
     matchLabels:
       mxl.qvest-digital.com/role: consumer
 ---
-# 4th flow — produced locally on n04 (writer-mxl-4), read by mediamtx on the
-# same node. The receiver still authorizes mediamtx to open the flow via the
-# intent-shim even though there's no cross-node mirror.
+# 4th flow — same intent as 1-3. Writer placement is dynamic (soft
+# anti-affinity), so this flow may land on the consumers' own node and be
+# read locally with no cross-node mirror; the receiver is still what
+# authorizes mediamtx to open the flow via the intent-shim.
 apiVersion: mxl.qvest-digital.com/v1alpha1
 kind: MxlReceiver
 metadata:

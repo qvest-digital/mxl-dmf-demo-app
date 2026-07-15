@@ -41,11 +41,11 @@ paths:
   # path on this node; the producer side runs on a different node and
   # writes into its own /run/mxl/domain — the gateway bridges them.
   #
-  # Four on-demand MXL paths, one per multiviewer flow (a1..0001-0004 ==
-  # tiles MXL-1..4). On-demand so single-tile inspection is possible
-  # without burning encoder CPU until a viewer actually requests a tile;
-  # the multiviewer page itself plays the pre-composited mosaic
-  # (/hls/composite) and never touches these.
+  # Four always-on MXL paths, one per multiviewer flow (d4d…0001-0004 ==
+  # tiles MXL-1..4). The multiviewer page plays these directly, one player
+  # per tile (WebRTC first, HLS fallback). sourceOnDemand stays false: with
+  # hlsAlwaysRemux, mediamtx does not start an on-demand source from an HLS
+  # request (see the srt-camera note below).
   mxl-1:
     source: mxl:///run/mxl/domain/d4d00000-0000-0000-0000-000000000001
     sourceOnDemand: false
@@ -73,11 +73,6 @@ paths:
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
-    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
-    # keyframe to cut a 1s segment on. Without it, high-complexity content
-    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
-    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
-    # patterns (bars, ball) happened to emit IDRs often enough to work.
     mxlH264IDRPeriod: 30
 
   mxl-4:
@@ -86,19 +81,13 @@ paths:
     mxlH264Preset: ultrafast
     mxlH264Profile: high
     mxlH264Bitrate: 3000000
-    # Force a 1s IDR/keyframe period so the HLS segmenter always has a
-    # keyframe to cut a 1s segment on. Without it, high-complexity content
-    # (the snow pattern: incompressible full-frame noise) defers IDRs and the
-    # HLS muxer can't form segments -> index.m3u8 returns HTTP 500. Low-motion
-    # patterns (bars, ball) happened to emit IDRs often enough to work.
     mxlH264IDRPeriod: 30
 
   # Compositor sink. The composite pod (k8s/composite-deployment.yaml)
   # reads the four MXL flows zero-copy, builds the 2x2 mosaic with
   # burned-in tile labels + global clock, and pushes the mosaic here.
-  # No source: line = publisher-mode path. The multiviewer landing page
-  # plays /hls/composite/index.m3u8 directly so the demo is one
-  # shareable URL.
+  # No source: line = publisher-mode path. Played on the multiviewer's
+  # Composite tab as /hls/composite/index.m3u8.
   composite: {}
 
   # txDarwin output. Publisher-mode (no source: line) — the
@@ -107,15 +96,6 @@ paths:
   # /hls/txdarwin-out/index.m3u8 (UI source toggle in config/index.html).
   txdarwin-out: {}
 
-  # DMF-231 live SRT ingest. The mxl-dmf-demo-srt-ingest bridge ingests a
-  # public SRT stream (srt-ingest.dmf.qvest-digital.com:9000) and writes MXL
-  # flow b2000000. mediamtx reads it zero-copy and serves /hls/srt-camera.
-  # Needs the matching MxlReceiver in mxl-receivers.yaml so the mxl-k8s
-  # intent-shim lets mediamtx open the flow. sourceOnDemand must be false:
-  # with hlsAlwaysRemux:true (above) mediamtx does NOT start an on-demand
-  # source from an HLS request, so an on-demand srt-camera never comes online
-  # (same reason mxl-stream-native is always-on). When the camera isn't
-  # streaming the MXL reader just logs "flow not found" and retries — harmless.
   # DMF-298/303 showcase: output of the per-booking txDarwin instance
   # named "ac3demo". The deploy workflow derives writer flow ids
   # deterministically (c3…-shasum(name)[0:12]), so this id is stable for
@@ -151,14 +131,23 @@ paths:
     mxlH264Bitrate: 5000000
     mxlH264IDRPeriod: 30
 
+  # DMF-231 live SRT ingest. The mxl-dmf-demo-srt-ingest bridge ingests a
+  # public SRT stream (srt-ingest.dmf.qvest-digital.com:9000) and writes MXL
+  # flow b2000000. mediamtx reads it zero-copy and serves /hls/srt-camera.
+  # Needs the matching MxlReceiver in mxl-receivers.yaml so the mxl-k8s
+  # intent-shim lets mediamtx open the flow. sourceOnDemand must be false:
+  # with hlsAlwaysRemux:true (above) mediamtx does NOT start an on-demand
+  # source from an HLS request, so an on-demand srt-camera never comes
+  # online. When the camera isn't streaming, the MXL reader just logs
+  # "flow not found" and retries — harmless.
   srt-camera:
     source: mxl:///run/mxl/domain/b2000000-0000-0000-0000-000000000001
     sourceOnDemand: false
-    # Baseline profile (like the mxl-1..4 tiles, avc1.42..) so browser WebRTC
-    # decoders can render it. Main/High H264 connects over WHEP but renders black,
-    # forcing the HLS fallback and its multi-second lag. srt-camera is the live
-    # ingest where sub-second WebRTC latency is the whole point, so it must be
-    # baseline. ultrafast disables CABAC/8x8dct -> Constrained Baseline output.
+    # Baseline profile (avc1.42..) so browser WebRTC decoders can render it.
+    # Main/High H264 connects over WHEP but renders black, forcing the HLS
+    # fallback and its multi-second lag. srt-camera is the live ingest where
+    # sub-second WebRTC latency is the whole point, so it must be baseline.
+    # ultrafast disables CABAC/8x8dct, so the output is Constrained Baseline.
     mxlH264Preset: ultrafast
     mxlH264Profile: baseline
     mxlH264Bitrate: 5000000

@@ -2,7 +2,8 @@
 # demo-metrics: dependency-free aggregator for the multiviewer client.
 #
 # Merges, per flow, everything we can cheaply reach:
-#   - compositor  : http://composite:9090/ (RDMA-delivered fps/grains/mbps)
+#   - compositor  : http://composite:9090/ (mosaic stats; the per-flow panel
+#                    numbers are derived instead — see the GRAIN_RATE comment)
 #   - writer pod  : k8s API (node, phase, restarts, image, pattern, age)
 #   - receiver    : MxlReceiver CR (phase, provider, bound mirror)
 #   - mirror      : MxlFlowMirror CR (phase, sourceNode, provider)
@@ -34,12 +35,12 @@ GW_NS = os.environ.get("GW_NS", "mxl-system")
 FLOW_PREFIX = os.environ.get("FLOW_PREFIX", "d4d00000-0000-0000-0000-00000000000")
 N_FLOWS = int(os.environ.get("N_FLOWS", "4"))
 
-# The compositor that used to measure received fps/Mbit is gone (each flow now
-# goes producer -> RDMA mirror -> mediamtx, no central consumer). Derive the
-# panel from real CR/pod status plus the nominal grain rate: a Ready mirror
-# transfers every 1080p v210 grain at the grain rate.
+# No single consumer measures received fps/Mbit anymore: each per-flow tile
+# goes producer -> RDMA mirror -> mediamtx, so there is nothing central to
+# ask. Derive the panel from real CR/pod status plus the nominal grain rate:
+# a Ready mirror transfers every 720p v210 grain at the grain rate.
 GRAIN_RATE = 30000.0 / 1001.0   # 29.97 fps
-GRAIN_BYTES = 2488320           # 720p v210 (1284 -> 3456 B/row * 720)
+GRAIN_BYTES = 2488320           # 720p v210 (1296 px wide -> 3456 B/row * 720)
 COMPOSITOR = os.environ.get("COMPOSITOR_STATS", "http://composite:9090/")
 
 API = "https://kubernetes.default.svc"
