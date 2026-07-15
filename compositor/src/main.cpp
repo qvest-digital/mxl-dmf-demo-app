@@ -142,6 +142,11 @@ namespace
         }
     };
 
+    // How many grains behind the live head to read. The newest grain may be
+    // mid-write; lagging a couple keeps every tile on a grain the writer has
+    // actually finished producing.
+    constexpr std::int64_t kLagGrains = 2;
+
     struct FlowWorker
     {
         std::size_t index;
