@@ -21,3 +21,8 @@ spec:
     - name: rtsp
       port: 8554
       targetPort: 8554
+    # Control API, used by the demo-metrics aggregator to add/remove per-flow
+    # preview paths on demand. In-cluster only (caddy does not proxy it).
+    - name: api
+      port: 9997
+      targetPort: 9997

@@ -16,7 +16,7 @@
 #
 # Runs in-cluster with a scoped ServiceAccount; talks to the API server with
 # the mounted SA token + CA. No pip deps so it runs on stock python:3-slim.
-import base64, json, os, ssl, urllib.request, urllib.error
+import base64, json, os, re, ssl, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 def _own_namespace():
@@ -495,6 +495,74 @@ def operator_flows():
     return {"flows": out}
 
 
+# ── Per-flow preview (mediamtx control API) ─────────────────────────────────
+# The operator-flows list can open a live preview of any flow: add a mediamtx
+# path that reads the flow zero-copy from the local MXL domain, play its HLS,
+# and delete the path on close so the reader doesn't linger. Only flows the
+# operator actually knows about can be added — we validate the uuid against the
+# MxlFlow set first, and the flow must be node-local to mediamtx (its Service
+# node) for the mxl source to open.
+MEDIAMTX_API = os.environ.get("MEDIAMTX_API", "http://mediamtx:9997")
+MXL_DOMAIN = os.environ.get("MXL_DOMAIN", "/run/mxl/domain")
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _mtx(path, method="GET", body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(MEDIAMTX_API + path, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            raw = r.read().decode().strip()
+            return r.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        try:
+            msg = e.read().decode()
+        except Exception:
+            msg = ""
+        return e.code, {"error": msg[:200]}
+
+
+def _known_flow(uuid):
+    for fl in safe_k8s(
+            "/apis/mxl.qvest-digital.com/v1alpha1/mxlflows").get("items", []):
+        if fl.get("metadata", {}).get("name") == uuid:
+            return fl
+    return None
+
+
+def preview_add(uuid):
+    if not _UUID_RE.match(uuid or ""):
+        return 400, {"error": "bad flow id"}
+    fl = _known_flow(uuid)
+    if not fl:
+        return 404, {"error": "flow not known to the operator"}
+    name = "preview-" + uuid
+    # Idempotent: reuse the path if the card was opened before.
+    code, _ = _mtx(f"/v3/config/paths/get/{name}")
+    if code != 200:
+        d = fl.get("spec", {}).get("definition", {}) or {}
+        conf = {"source": f"mxl://{MXL_DOMAIN}/{uuid}", "sourceOnDemand": False}
+        if (d.get("format") or "").endswith("video"):
+            conf.update({"mxlH264Preset": "veryfast",
+                         "mxlH264Profile": "high",
+                         "mxlH264Bitrate": 5000000})
+        code, res = _mtx(f"/v3/config/paths/add/{name}", "POST", conf)
+        if code != 200:
+            return code, {"error": res.get("error") or "mediamtx add failed"}
+    return 200, {"path": name, "hls": f"/hls/{name}/index.m3u8"}
+
+
+def preview_del(uuid):
+    if not _UUID_RE.match(uuid or ""):
+        return 400, {"error": "bad flow id"}
+    _mtx(f"/v3/config/paths/delete/preview-{uuid}", "DELETE")
+    return 200, {"stopped": "preview-" + uuid}
+
+
 class H(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode()
@@ -530,7 +598,21 @@ class H(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "not found"})
 
+    def do_DELETE(self):
+        if self.path.startswith("/api/preview/"):
+            uuid = self.path.rstrip("/").rsplit("/", 1)[1]
+            code, res = preview_del(uuid)
+            return self._send(code, res)
+        self._send(404, {"error": "not found"})
+
     def do_POST(self):
+        if self.path.startswith("/api/preview/"):
+            uuid = self.path.rstrip("/").rsplit("/", 1)[1]
+            try:
+                code, res = preview_add(uuid)
+            except Exception as e:
+                code, res = 500, {"error": str(e)}
+            return self._send(code, res)
         if self.path.startswith("/api/kill/"):
             try:
                 n = int(self.path.rsplit("/", 1)[1])
