@@ -108,6 +108,12 @@
   .flow .quick .m .v { font-size: 15px; font-weight: 700; }
   .flow .quick .m .v.lime { color: var(--qv-lime); }
   .flow .quick .m .v.warn { color: var(--qv-orange); }
+  .of-count { font-size: 11px; opacity: .55; font-weight: 600; margin-left: 4px; text-transform: none; letter-spacing: 0; }
+  .flow .badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; margin-left: 6px; }
+  .flow .badge.video { background: rgba(200,241,105,.18); color: #4f7a00; }
+  .flow .badge.audio { background: rgba(240,80,18,.16); color: var(--qv-orange); }
+  .flow .of-meta { font-size: 11px; opacity: .6; margin-top: 6px; font-family: ui-monospace, "SF Mono", Menlo, monospace; word-break: break-all; }
+  .flow .of-meta .loc { opacity: .8; }
   .btn {
     border-radius: var(--qv-radius-pill); border: 2px solid rgba(255,255,255,.5);
     color: #fff; background: transparent; padding: .3em .9em; font-weight: 700;
@@ -290,6 +296,11 @@
       <div class="gwbar">
         <h2>Gateways</h2>
         <div class="gwgrid" id="gwgrid"></div>
+      </div>
+
+      <div class="gwbar">
+        <h2>Operator flows <span class="of-count" id="of-count"></span></h2>
+        <div class="flows" id="opflows"></div>
       </div>
     </aside>
   </main>
@@ -500,6 +511,43 @@
       fetch('/api/flows', {cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
     }
     setInterval(poll, 1500); poll();
+
+    // ── Operator flow inventory: every MXL flow the mxl-k8s operator knows ──
+    // about (its MxlFlow CRs), independent of whether this demo happens to
+    // produce/play it. demo-metrics serves /api/operator-flows straight from
+    // the CRs; the dot is the flow's OriginFresh condition.
+    function renderOpFlows(list){
+      var wrap=document.getElementById('opflows'), cnt=document.getElementById('of-count');
+      list=list||[];
+      cnt.textContent = list.length ? '('+list.length+')' : '';
+      if(!list.length){ wrap.innerHTML='<div class="flow" style="opacity:.6">No flows registered with the operator.</div>'; return; }
+      wrap.innerHTML=list.map(function(f){
+        var fresh=f.originFresh===true, fmt=(f.format||'').toLowerCase();
+        var media=(f.format==='audio'
+          ? [f.mediaType, f.channels?(f.channels+' ch'):null]
+          : [f.mediaType, f.resolution]).filter(Boolean).join(' · ');
+        var locs=(f.locations||[]).map(function(l){return esc(l.node)+':'+esc(l.phase);}).join(', ')||'no locations';
+        return '<div class="flow">'+
+          '<div class="row">'+
+            '<span class="dot '+(fresh?'live':'bad')+'"></span>'+
+            '<span class="name">'+esc(f.label)+
+              (fmt?('<span class="badge '+(fmt==='audio'?'audio':'video')+'">'+esc(fmt)+'</span>'):'')+
+            '</span>'+
+            '<span class="quick">'+
+              '<span class="m"><div class="k">media</div><div class="v">'+(esc(media)||'--')+'</div></span>'+
+              '<span class="m"><div class="k">rate</div><div class="v lime">'+(esc(f.rate)||'--')+'</div></span>'+
+            '</span>'+
+          '</div>'+
+          '<div class="of-meta">'+esc(f.id)+' &middot; <span class="loc">'+locs+'</span>'+
+            (f.grouphint?(' &middot; '+esc(f.grouphint)):'')+'</div>'+
+        '</div>';
+      }).join('');
+    }
+    function pollOps(){
+      fetch('/api/operator-flows',{cache:'no-store'}).then(function(r){return r.json();})
+        .then(function(d){ renderOpFlows(d.flows); }).catch(function(){});
+    }
+    setInterval(pollOps, 3000); pollOps();
 
     // ── Per-flow players: WebRTC/WHEP first (sub-second), HLS on fallback ──
 

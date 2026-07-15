@@ -434,6 +434,67 @@ def storyline(events):
     return out[-12:]
 
 
+# ── Operator flow inventory ─────────────────────────────────────────────────
+# Every MXL flow the mxl-k8s operator knows about, straight from the (cluster-
+# scoped) MxlFlow CRs — not the hardcoded d4d writer set build() reports. The
+# multiviewer's "operator flows" list renders this verbatim, so the demo shows
+# whatever is actually registered on the cluster (ST 2110 gateway, tcp-demo,
+# audio, ...), each with the media facts and origin health the operator tracks.
+def operator_flows():
+    items = safe_k8s(
+        "/apis/mxl.qvest-digital.com/v1alpha1/mxlflows").get("items", [])
+    out = []
+    for fl in items:
+        d = fl.get("spec", {}).get("definition", {}) or {}
+        uuid = fl.get("metadata", {}).get("name") or fl.get("spec", {}).get("id")
+        # urn:x-nmos:format:video -> "video"; keep raw if it isn't a URN.
+        fmt = (d.get("format") or "").rsplit(":", 1)[-1] or None
+
+        resolution = None
+        if d.get("frame_width") and d.get("frame_height"):
+            resolution = f"{d['frame_width']}x{d['frame_height']}"
+
+        rate = None
+        gr = d.get("grain_rate") or {}
+        if gr.get("numerator"):
+            rate = f"{gr['numerator']}/{gr.get('denominator', 1)}"
+        sr = d.get("sample_rate") or {}
+        if sr.get("numerator"):
+            rate = f"{sr['numerator'] / max(1, sr.get('denominator', 1)) / 1000:g} kHz"
+
+        origin_fresh = None
+        for c in (fl.get("status", {}).get("conditions") or []):
+            if c.get("type") == "OriginFresh":
+                origin_fresh = c.get("status") == "True"
+        locations = [
+            {"node": l.get("nodeName"), "phase": l.get("phase")}
+            for l in (fl.get("status", {}).get("locations") or [])
+        ]
+
+        grouphint = None
+        gh = (d.get("tags") or {}).get("urn:x-nmos:tag:grouphint/v1.0")
+        if isinstance(gh, list) and gh:
+            grouphint = gh[0]
+
+        out.append({
+            "id": uuid,
+            "label": d.get("label") or uuid,
+            "description": d.get("description"),
+            "format": fmt,
+            "mediaType": d.get("media_type"),
+            "resolution": resolution,
+            "rate": rate,
+            "channels": d.get("channel_count"),
+            "colorspace": d.get("colorspace"),
+            "grouphint": grouphint,
+            "originFresh": origin_fresh,
+            "locations": locations,
+        })
+    # Stable order: group by media format, then by uuid.
+    out.sort(key=lambda f: ((f["format"] or "~"), f["id"] or ""))
+    return {"flows": out}
+
+
 class H(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode()
@@ -452,6 +513,11 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/api/booking"):
             try:
                 self._send(200, booking())
+            except Exception as e:
+                self._send(500, {"error": str(e)})
+        elif self.path.startswith("/api/operator-flows"):
+            try:
+                self._send(200, operator_flows())
             except Exception as e:
                 self._send(500, {"error": str(e)})
         elif self.path.startswith("/api/flows"):
