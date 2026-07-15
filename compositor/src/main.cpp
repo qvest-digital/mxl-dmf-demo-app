@@ -81,6 +81,67 @@ namespace
         return out;
     }
 
+    // Minimal extractor for a top-level integer field in the flow-def JSON,
+    // e.g. "frame_width": 1920. Avoids pulling in a JSON dependency for two
+    // numbers. Matches the exact quoted key so it won't collide with the
+    // nested "width"/"height" under components[]. Returns -1 if absent.
+    int json_int_field(std::string const& json, char const* field)
+    {
+        auto const key = std::string{"\""} + field + "\"";
+        auto pos = json.find(key);
+        if (pos == std::string::npos) return -1;
+        pos = json.find(':', pos + key.size());
+        if (pos == std::string::npos) return -1;
+        ++pos;
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) ++pos;
+        int val = 0;
+        bool any = false;
+        while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9')
+        {
+            val = val * 10 + (json[pos] - '0');
+            ++pos;
+            any = true;
+        }
+        return any ? val : -1;
+    }
+
+    // Re-implementation of the Cursor pattern from mxl-gst-sink. Keeps each
+    // reader pinned to the live grain index for its flow's rate; next()
+    // sleeps until the next grain's delivery deadline so workers don't busy-
+    // poll. readDelay=0 because the compositor wants the freshest frame.
+    struct Cursor
+    {
+        mxlRational rate;
+        std::uint32_t windowSize;
+        std::int64_t readDelayGrains;
+        std::uint64_t currentIndex;
+        std::uint64_t requestedIndex;
+        std::uint64_t deliveryDeadline;
+
+        Cursor(mxlRational r, std::uint32_t w, std::int64_t readDelayNs)
+            : rate{r}
+            , windowSize{w}
+            , readDelayGrains{((::mxlTimestampToIndex(&r, readDelayNs) + w - 1) / w) * w}
+        {
+            realign(::mxlGetTime());
+        }
+
+        void realign(std::uint64_t now)
+        {
+            currentIndex = ((::mxlTimestampToIndex(&rate, now) + (windowSize / 2)) / windowSize) * windowSize;
+            requestedIndex = currentIndex - readDelayGrains;
+            deliveryDeadline = ::mxlIndexToTimestamp(&rate, currentIndex + windowSize);
+        }
+
+        void next()
+        {
+            ::mxlSleepUntil(deliveryDeadline);
+            currentIndex += windowSize;
+            requestedIndex += windowSize;
+            deliveryDeadline = ::mxlIndexToTimestamp(&rate, currentIndex + windowSize);
+        }
+    };
+
     // How many grains behind the live head to read. The newest grain may be
     // mid-write; lagging a couple keeps every tile on a grain the writer has
     // actually finished producing.
@@ -223,10 +284,48 @@ namespace
         // Push the appsrc caps once before the first buffer. The capsfilter
         // downstream in the pipeline asserts the format, but appsrc needs an
         // explicit set so videoconvert can negotiate without a stall.
+        //
+        // Width/height MUST match the flow's real frame size: the worker
+        // pushes a buffer of the flow's actual grainSize, so declaring the
+        // wrong dimensions makes gst read V210 with the wrong stride →
+        // torn/partial frames (flicker). mxlFlowConfigInfo carries no
+        // dimensions, so read them from the flow def. Producers that don't
+        // rescale (e.g. the SRT bridge) publish whatever resolution they
+        // ingest, so this can't be assumed to be 1080p.
+        int vw = 1920;
+        int vh = 1080;
+        {
+            std::vector<char> defBuf(16384);
+            std::size_t defSize = defBuf.size();
+            if (::mxlGetFlowDef(w->instance, w->flowId.c_str(), defBuf.data(), &defSize) == MXL_STATUS_OK)
+            {
+                std::string const def{defBuf.data()};
+                int const pw = json_int_field(def, "frame_width");
+                int const ph = json_int_field(def, "frame_height");
+                if (pw > 0 && ph > 0)
+                {
+                    vw = pw;
+                    vh = ph;
+                }
+                else
+                {
+                    g_printerr("[%zu] %s: frame_width/height absent in flow def; defaulting %dx%d\n",
+                        w->index, w->flowId.c_str(), vw, vh);
+                }
+            }
+            else
+            {
+                g_printerr("[%zu] %s: mxlGetFlowDef failed; defaulting caps %dx%d\n",
+                    w->index, w->flowId.c_str(), vw, vh);
+            }
+        }
+        g_print("[%zu] %s caps %dx%d v210 @ %d/%d\n",
+            w->index, w->flowId.c_str(), vw, vh, rate.numerator, rate.denominator);
+
         auto* caps = ::gst_caps_new_simple("video/x-raw",
             "format", G_TYPE_STRING, "v210",
-            "width", G_TYPE_INT, g_frameW,
-            "height", G_TYPE_INT, g_frameH,
+            "width", G_TYPE_INT, vw,
+            "height", G_TYPE_INT, vh,
             "framerate", GST_TYPE_FRACTION, rate.numerator, rate.denominator,
             nullptr);
         ::g_object_set(G_OBJECT(w->appsrc), "caps", caps, nullptr);

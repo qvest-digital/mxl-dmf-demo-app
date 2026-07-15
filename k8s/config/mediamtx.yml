@@ -1,5 +1,32 @@
 logLevel: info
 
+# Control API: the demo-metrics aggregator adds/removes a per-flow path here
+# (POST/DELETE /v3/config/paths/...) when the multiviewer's "Operator flows"
+# preview card is opened/closed. Internal only — reachable via the mediamtx
+# Service's api port; caddy never proxies it to the browser.
+api: true
+apiAddress: :9997
+
+# mediamtx defaults the api/metrics actions to 127.0.0.1 only, so the
+# demo-metrics pod (a separate pod, reached over the Service) gets an
+# "authentication error" on path add/delete. Re-grant those actions to private
+# (in-cluster) networks only — the api port is a ClusterIP, never ingressed and
+# never proxied by caddy, so it stays unreachable from outside the cluster.
+# publish/read/playback keep their any-IP default (compositor RTSP publish,
+# browser HLS read).
+authInternalUsers:
+  - user: any
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+  - user: any
+    ips: [127.0.0.1, "::1", 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
+
 webrtc: true
 webrtcAddress: :8889
 # ICE media goes over a dedicated UDP mux port, exposed via its own

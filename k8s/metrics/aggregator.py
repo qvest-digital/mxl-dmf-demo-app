@@ -16,7 +16,7 @@
 #
 # Runs in-cluster with a scoped ServiceAccount; talks to the API server with
 # the mounted SA token + CA. No pip deps so it runs on stock python:3-slim.
-import base64, json, os, ssl, urllib.request, urllib.error
+import base64, json, os, re, ssl, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 def _own_namespace():
@@ -434,6 +434,135 @@ def storyline(events):
     return out[-12:]
 
 
+# ── Operator flow inventory ─────────────────────────────────────────────────
+# Every MXL flow the mxl-k8s operator knows about, straight from the (cluster-
+# scoped) MxlFlow CRs — not the hardcoded d4d writer set build() reports. The
+# multiviewer's "operator flows" list renders this verbatim, so the demo shows
+# whatever is actually registered on the cluster (ST 2110 gateway, tcp-demo,
+# audio, ...), each with the media facts and origin health the operator tracks.
+def operator_flows():
+    items = safe_k8s(
+        "/apis/mxl.qvest-digital.com/v1alpha1/mxlflows").get("items", [])
+    out = []
+    for fl in items:
+        d = fl.get("spec", {}).get("definition", {}) or {}
+        uuid = fl.get("metadata", {}).get("name") or fl.get("spec", {}).get("id")
+        # urn:x-nmos:format:video -> "video"; keep raw if it isn't a URN.
+        fmt = (d.get("format") or "").rsplit(":", 1)[-1] or None
+
+        resolution = None
+        if d.get("frame_width") and d.get("frame_height"):
+            resolution = f"{d['frame_width']}x{d['frame_height']}"
+
+        rate = None
+        gr = d.get("grain_rate") or {}
+        if gr.get("numerator"):
+            rate = f"{gr['numerator']}/{gr.get('denominator', 1)}"
+        sr = d.get("sample_rate") or {}
+        if sr.get("numerator"):
+            rate = f"{sr['numerator'] / max(1, sr.get('denominator', 1)) / 1000:g} kHz"
+
+        origin_fresh = None
+        for c in (fl.get("status", {}).get("conditions") or []):
+            if c.get("type") == "OriginFresh":
+                origin_fresh = c.get("status") == "True"
+        locations = [
+            {"node": l.get("nodeName"), "phase": l.get("phase")}
+            for l in (fl.get("status", {}).get("locations") or [])
+        ]
+
+        grouphint = None
+        gh = (d.get("tags") or {}).get("urn:x-nmos:tag:grouphint/v1.0")
+        if isinstance(gh, list) and gh:
+            grouphint = gh[0]
+
+        out.append({
+            "id": uuid,
+            "label": d.get("label") or uuid,
+            "description": d.get("description"),
+            "format": fmt,
+            "mediaType": d.get("media_type"),
+            "resolution": resolution,
+            "rate": rate,
+            "channels": d.get("channel_count"),
+            "colorspace": d.get("colorspace"),
+            "grouphint": grouphint,
+            "originFresh": origin_fresh,
+            "locations": locations,
+        })
+    # Stable order: group by media format, then by uuid.
+    out.sort(key=lambda f: ((f["format"] or "~"), f["id"] or ""))
+    return {"flows": out}
+
+
+# ── Per-flow preview (mediamtx control API) ─────────────────────────────────
+# The operator-flows list can open a live preview of any flow: add a mediamtx
+# path that reads the flow zero-copy from the local MXL domain, play its HLS,
+# and delete the path on close so the reader doesn't linger. Only flows the
+# operator actually knows about can be added — we validate the uuid against the
+# MxlFlow set first, and the flow must be node-local to mediamtx (its Service
+# node) for the mxl source to open.
+MEDIAMTX_API = os.environ.get("MEDIAMTX_API", "http://mediamtx:9997")
+MXL_DOMAIN = os.environ.get("MXL_DOMAIN", "/run/mxl/domain")
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _mtx(path, method="GET", body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(MEDIAMTX_API + path, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            raw = r.read().decode().strip()
+            return r.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        try:
+            msg = e.read().decode()
+        except Exception:
+            msg = ""
+        return e.code, {"error": msg[:200]}
+
+
+def _known_flow(uuid):
+    for fl in safe_k8s(
+            "/apis/mxl.qvest-digital.com/v1alpha1/mxlflows").get("items", []):
+        if fl.get("metadata", {}).get("name") == uuid:
+            return fl
+    return None
+
+
+def preview_add(uuid):
+    if not _UUID_RE.match(uuid or ""):
+        return 400, {"error": "bad flow id"}
+    fl = _known_flow(uuid)
+    if not fl:
+        return 404, {"error": "flow not known to the operator"}
+    name = "preview-" + uuid
+    # Idempotent: reuse the path if the card was opened before.
+    code, _ = _mtx(f"/v3/config/paths/get/{name}")
+    if code != 200:
+        d = fl.get("spec", {}).get("definition", {}) or {}
+        conf = {"source": f"mxl://{MXL_DOMAIN}/{uuid}", "sourceOnDemand": False}
+        if (d.get("format") or "").endswith("video"):
+            conf.update({"mxlH264Preset": "veryfast",
+                         "mxlH264Profile": "high",
+                         "mxlH264Bitrate": 5000000})
+        code, res = _mtx(f"/v3/config/paths/add/{name}", "POST", conf)
+        if code != 200:
+            return code, {"error": res.get("error") or "mediamtx add failed"}
+    return 200, {"path": name, "hls": f"/hls/{name}/index.m3u8"}
+
+
+def preview_del(uuid):
+    if not _UUID_RE.match(uuid or ""):
+        return 400, {"error": "bad flow id"}
+    _mtx(f"/v3/config/paths/delete/preview-{uuid}", "DELETE")
+    return 200, {"stopped": "preview-" + uuid}
+
+
 class H(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode()
@@ -454,6 +583,11 @@ class H(BaseHTTPRequestHandler):
                 self._send(200, booking())
             except Exception as e:
                 self._send(500, {"error": str(e)})
+        elif self.path.startswith("/api/operator-flows"):
+            try:
+                self._send(200, operator_flows())
+            except Exception as e:
+                self._send(500, {"error": str(e)})
         elif self.path.startswith("/api/flows"):
             try:
                 self._send(200, build())
@@ -464,7 +598,21 @@ class H(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "not found"})
 
+    def do_DELETE(self):
+        if self.path.startswith("/api/preview/"):
+            uuid = self.path.rstrip("/").rsplit("/", 1)[1]
+            code, res = preview_del(uuid)
+            return self._send(code, res)
+        self._send(404, {"error": "not found"})
+
     def do_POST(self):
+        if self.path.startswith("/api/preview/"):
+            uuid = self.path.rstrip("/").rsplit("/", 1)[1]
+            try:
+                code, res = preview_add(uuid)
+            except Exception as e:
+                code, res = 500, {"error": str(e)}
+            return self._send(code, res)
         if self.path.startswith("/api/kill/"):
             try:
                 n = int(self.path.rsplit("/", 1)[1])

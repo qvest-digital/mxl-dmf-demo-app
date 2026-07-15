@@ -108,6 +108,20 @@
   .flow .quick .m .v { font-size: 15px; font-weight: 700; }
   .flow .quick .m .v.lime { color: var(--qv-lime); }
   .flow .quick .m .v.warn { color: var(--qv-orange); }
+  .of-count { font-size: 11px; opacity: .55; font-weight: 600; margin-left: 4px; text-transform: none; letter-spacing: 0; }
+  .flow .badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; margin-left: 6px; }
+  .flow .badge.video { background: rgba(200,241,105,.18); color: #4f7a00; }
+  .flow .badge.audio { background: rgba(240,80,18,.16); color: var(--qv-orange); }
+  .flow .of-meta { font-size: 11px; opacity: .6; margin-top: 6px; font-family: ui-monospace, "SF Mono", Menlo, monospace; word-break: break-all; }
+  .flow .of-meta .loc { opacity: .8; }
+  .of-prev { white-space: nowrap; }
+  .pv { position: fixed; inset: 0; background: rgba(11,9,13,.66); display: none; align-items: center; justify-content: center; z-index: 50; padding: 24px; }
+  .pv.show { display: flex; }
+  .pv-card { background: var(--qv-ink); color: #fff; border-radius: var(--qv-radius); padding: 16px; width: min(880px, 92vw); box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+  .pv-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-weight: 800; }
+  .pv-head .btn { background: rgba(255,255,255,.12); color: #fff; }
+  .pv-video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 12px; display: block; }
+  .pv-state { font-size: 12px; opacity: .7; margin-top: 8px; min-height: 16px; }
   .btn {
     border-radius: var(--qv-radius-pill); border: 2px solid rgba(255,255,255,.5);
     color: #fff; background: transparent; padding: .3em .9em; font-weight: 700;
@@ -291,6 +305,11 @@
         <h2>Gateways</h2>
         <div class="gwgrid" id="gwgrid"></div>
       </div>
+
+      <div class="gwbar">
+        <h2>Operator flows <span class="of-count" id="of-count"></span></h2>
+        <div class="flows" id="opflows"></div>
+      </div>
     </aside>
   </main>
   </div>
@@ -360,6 +379,17 @@
   </div>
 
   <footer></footer>
+
+  <!-- Flow preview overlay: a mediamtx path is added on open (demo-metrics
+       /api/preview/<uuid>) and removed on close. Lives outside the polled
+       list so the 3s refresh never tears down a playing preview. -->
+  <div id="pv" class="pv">
+    <div class="pv-card">
+      <div class="pv-head"><span id="pv-title">Preview</span><button id="pv-close" class="btn">✕</button></div>
+      <video id="pvv" class="pv-video" autoplay playsinline controls></video>
+      <div id="pv-state" class="pv-state"></div>
+    </div>
+  </div>
 
   <script>
     function pad(n){ return n<10 ? '0'+n : ''+n; }
@@ -500,6 +530,91 @@
       fetch('/api/flows', {cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
     }
     setInterval(poll, 1500); poll();
+
+    // ── Operator flow inventory: every MXL flow the mxl-k8s operator knows ──
+    // about (its MxlFlow CRs), independent of whether this demo happens to
+    // produce/play it. demo-metrics serves /api/operator-flows straight from
+    // the CRs; the dot is the flow's OriginFresh condition.
+    function renderOpFlows(list){
+      var wrap=document.getElementById('opflows'), cnt=document.getElementById('of-count');
+      list=list||[];
+      cnt.textContent = list.length ? '('+list.length+')' : '';
+      if(!list.length){ wrap.innerHTML='<div class="flow" style="opacity:.6">No flows registered with the operator.</div>'; return; }
+      wrap.innerHTML=list.map(function(f){
+        var fresh=f.originFresh===true, fmt=(f.format||'').toLowerCase();
+        var media=(f.format==='audio'
+          ? [f.mediaType, f.channels?(f.channels+' ch'):null]
+          : [f.mediaType, f.resolution]).filter(Boolean).join(' · ');
+        var locs=(f.locations||[]).map(function(l){return esc(l.node)+':'+esc(l.phase);}).join(', ')||'no locations';
+        return '<div class="flow">'+
+          '<div class="row">'+
+            '<span class="dot '+(fresh?'live':'bad')+'"></span>'+
+            '<span class="name">'+esc(f.label)+
+              (fmt?('<span class="badge '+(fmt==='audio'?'audio':'video')+'">'+esc(fmt)+'</span>'):'')+
+            '</span>'+
+            '<span class="quick">'+
+              '<span class="m"><div class="k">media</div><div class="v">'+(esc(media)||'--')+'</div></span>'+
+              '<span class="m"><div class="k">rate</div><div class="v lime">'+(esc(f.rate)||'--')+'</div></span>'+
+            '</span>'+
+            '<button class="btn of-prev" data-id="'+esc(f.id)+'" data-label="'+esc(f.label).replace(/"/g,'&quot;')+'">Preview</button>'+
+          '</div>'+
+          '<div class="of-meta">'+esc(f.id)+' &middot; <span class="loc">'+locs+'</span>'+
+            (f.grouphint?(' &middot; '+esc(f.grouphint)):'')+'</div>'+
+        '</div>';
+      }).join('');
+    }
+    function pollOps(){
+      fetch('/api/operator-flows',{cache:'no-store'}).then(function(r){return r.json();})
+        .then(function(d){ renderOpFlows(d.flows); }).catch(function(){});
+    }
+    setInterval(pollOps, 3000); pollOps();
+
+    // ── Flow preview: ask demo-metrics to add a mediamtx path for the flow,
+    // play its HLS in the overlay, and tear the path down on close. ──
+    (function(){
+      var modal=document.getElementById('pv'), pvv=document.getElementById('pvv'),
+          pvTitle=document.getElementById('pv-title'), pvState=document.getElementById('pv-state'),
+          curId=null, curHls=null;
+      function stopPlayer(){
+        if(curHls){ try{curHls.destroy();}catch(e){} curHls=null; }
+        try{ pvv.pause(); pvv.removeAttribute('src'); pvv.load(); }catch(e){}
+      }
+      function play(src){
+        if(window.Hls && Hls.isSupported()){
+          curHls=new Hls({liveSyncDurationCount:3,enableWorker:true,lowLatencyMode:false});
+          curHls.loadSource(src); curHls.attachMedia(pvv);
+          curHls.on(Hls.Events.MANIFEST_PARSED,function(){ pvv.play(); pvState.textContent=''; });
+          curHls.on(Hls.Events.ERROR,function(ev,d){ if(d.fatal){ pvState.textContent='buffering…'; setTimeout(function(){ if(curHls) curHls.loadSource(src); },4000); } });
+        } else if(pvv.canPlayType('application/vnd.apple.mpegurl')){
+          pvv.src=src; pvv.play();
+        }
+      }
+      function open(id,label){
+        curId=id; modal.classList.add('show'); pvTitle.textContent=label||id;
+        pvState.textContent='starting preview…'; stopPlayer();
+        fetch('/api/preview/'+encodeURIComponent(id),{method:'POST'})
+          .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
+          .then(function(x){
+            if(!x.ok){ pvState.textContent='preview failed: '+(x.j.error||''); return; }
+            // Give mediamtx a moment to open the reader and cut the first segment.
+            setTimeout(function(){ if(curId===id) play(x.j.hls); }, 900);
+          })
+          .catch(function(){ pvState.textContent='preview request failed'; });
+      }
+      function close(){
+        modal.classList.remove('show'); stopPlayer();
+        if(curId){ fetch('/api/preview/'+encodeURIComponent(curId),{method:'DELETE'}).catch(function(){}); curId=null; }
+      }
+      document.getElementById('pv-close').onclick=close;
+      modal.addEventListener('click',function(e){ if(e.target===modal) close(); });
+      document.addEventListener('keydown',function(e){ if(e.key==='Escape' && modal.classList.contains('show')) close(); });
+      // Delegated: the operator-flows rows are rebuilt on every poll.
+      document.addEventListener('click',function(e){
+        var b=e.target.closest ? e.target.closest('.of-prev') : null;
+        if(!b) return;
+        open(b.getAttribute('data-id'), b.getAttribute('data-label'));
+      });
+    })();
 
     // ── Per-flow players: WebRTC/WHEP first (sub-second), HLS on fallback ──
 
