@@ -68,7 +68,7 @@ kind: MxlReceiver
 metadata:
   name: txdarwin-output
 spec:
-  flowID: "c3000000-0000-0000-0000-000000000001"
+  flowID: "c3000000-0000-0000-0000-b28b7af69320"
   provider: tcp
   podSelector:
     matchLabels:
