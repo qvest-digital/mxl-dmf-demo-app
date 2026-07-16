@@ -12,12 +12,16 @@ Zwei Buchungen aus der Scheduling-App (Job #00053 „Test kurz A" auf Template 1
 
 | Zeit | Buchung | Ereignis |
 |---|---|---|
-| 10:46:27 | A | Pre-Roll feuert `MXL_DMF_ApplyInstance` → Pod `t1` scheduled (Template 1, Chart `txdarwin@0.3.0`) |
-| 10:46:28 | A | Image aus ECR gezogen (111 ms, Cache) → Container laufen |
+| 10:45:06 | A | Pre-Roll feuert `MXL_DMF_ApplyInstance` → [Action-Run ↗](https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29484578598) → Commit `instance: apply txdarwin/t1` (10:45:13) |
+| 10:46:27 | A | Pod `t1` scheduled (Template 1, Chart `txdarwin@0.3.0`); Image aus ECR in 111 ms (Cache) → Container laufen |
 | 10:53 | A | t1 **Reachable / on-air**, UI `txdarwin-t1.dmf…` antwortet HTTP 200 (Beobachtungszeitpunkt) |
+| 10:56:01 | B | Pre-Roll-Dispatch [Action-Run ↗](https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29485253080) → Commit `instance: apply txdarwin/t2` (10:56:07) |
 | 10:57:45 | B | Pod `t2` scheduled (Template 2) — **beide Instanzen laufen parallel**, getrennte Ressourcen-Pools |
+| 11:00:02 | A | Post-Roll-Dispatch [Action-Run ↗](https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29485496466) → Commit `instance: delete txdarwin/t1` |
 | 11:01:14 | A | Teardown: `Helm uninstall t1` + `HelmChart deleted` — automatisch, niemand hat geklickt |
-| 11:05 | B | t2 solo on-air; permanente Showcase-Instanz `main` läuft durchgehend daneben |
+| 11:15:01 | B | Post-Roll-Dispatch [Action-Run ↗](https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29486439575) → Commit `instance: delete txdarwin/t2` → t2 abgeräumt; `main` läuft durchgehend weiter |
+
+Alle vier Action-Runs (2× Apply, 2× Delete) liefen **success** — die Run-Links sind der exakte Zeitstempel-Beleg für Hoch- und Runterfahren je Buchung.
 
 ## Der Lifecycle: von der Buchung zum Pod und zurück
 

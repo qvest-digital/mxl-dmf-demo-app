@@ -49,6 +49,8 @@
   .tl time { font-weight:700; font-variant-numeric:tabular-nums; margin-right:10px; white-space:nowrap; }
   .tl .who { display:inline-block; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
     border:1.5px solid var(--line); border-radius:999px; padding:1px 10px; margin-right:8px; color:var(--muted); }
+  .tl a { color:var(--qv-orange); font-weight:700; text-decoration:none; white-space:nowrap; }
+  .tl a:hover { text-decoration:underline; }
 
   /* Chain */
   .chain { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:16px 0 4px; }
@@ -110,13 +112,16 @@
   <h2>Heute live gelaufen: Buchung A → t1, Buchung B → t2</h2>
   <p class="sub">Zwei Buchungen aus der Scheduling-App (Job #00053 „Test kurz A" auf Template&nbsp;1, Job #00054 auf Template&nbsp;2), Zeiten Europe/Berlin, aus Cluster-Events und Booking-API.</p>
   <ul class="tl">
-    <li><time>10:46:27</time><span class="who">Buchung A</span>Pre-Roll feuert <code>MXL_DMF_ApplyInstance</code> → Pod <code>t1</code> scheduled (Template&nbsp;1, Chart <code>txdarwin@0.3.0</code>)</li>
-    <li><time>10:46:28</time><span class="who">Buchung A</span>Image aus ECR gezogen (111&nbsp;ms, Cache) → Container laufen</li>
+    <li><time>10:45:06</time><span class="who">Buchung A</span>Pre-Roll feuert <code>MXL_DMF_ApplyInstance</code> → GitHub-Dispatch <a href="https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29484578598">Action-Run ↗</a> → Commit <code>instance: apply txdarwin/t1</code> (10:45:13)</li>
+    <li><time>10:46:27</time><span class="who">Buchung A</span>Pod <code>t1</code> scheduled (Template&nbsp;1, Chart <code>txdarwin@0.3.0</code>); Image aus ECR in 111&nbsp;ms (Cache) → Container laufen</li>
     <li><time>10:53</time><span class="who">Buchung A</span>t1 <b>Reachable / on-air</b>, UI <code>txdarwin-t1.dmf…</code> antwortet HTTP&nbsp;200 (Beobachtungszeitpunkt)</li>
+    <li><time>10:56:01</time><span class="who">Buchung B</span>Pre-Roll-Dispatch <a href="https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29485253080">Action-Run ↗</a> → Commit <code>instance: apply txdarwin/t2</code> (10:56:07)</li>
     <li><time>10:57:45</time><span class="who">Buchung B</span>Pod <code>t2</code> scheduled (Template&nbsp;2) — <b>beide Instanzen laufen parallel</b>, getrennte Ressourcen-Pools</li>
+    <li class="teal"><time>11:00:02</time><span class="who">Buchung A</span>Post-Roll-Dispatch <a href="https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29485496466">Action-Run ↗</a> → Commit <code>instance: delete txdarwin/t1</code></li>
     <li class="teal"><time>11:01:14</time><span class="who">Buchung A</span>Teardown: <code>Helm uninstall t1</code> + <code>HelmChart deleted</code> — automatisch, niemand hat geklickt</li>
-    <li class="teal"><time>11:05</time><span class="who">Buchung B</span>t2 solo on-air; permanente Showcase-Instanz <code>main</code> läuft durchgehend daneben</li>
+    <li class="teal"><time>11:15:01</time><span class="who">Buchung B</span>Post-Roll-Dispatch <a href="https://github.com/qvest-digital/mxl-dmf-txdarwin-flux/actions/runs/29486439575">Action-Run ↗</a> → Commit <code>instance: delete txdarwin/t2</code> → t2 abgeräumt; <code>main</code> läuft durchgehend weiter</li>
   </ul>
+  <p style="color:var(--muted); font-size:14px;">Alle vier Action-Runs (2× Apply, 2× Delete) liefen <b>success</b> — die Run-Links sind der exakte Zeitstempel-Beleg für Hoch- und Runterfahren je Buchung.</p>
 </section>
 
 <section>
