@@ -203,6 +203,7 @@
   /* The video shrinks with the row instead of forcing an aspect ratio on it. */
   .bk-video { width: 100%; height: 100%; min-height: 0; background: #000; border-radius: var(--qv-radius); display: block; object-fit: contain; }
   .bk-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .bk-meta { font-size: 11px; opacity: .55; margin-top: 6px; display: flex; gap: 12px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
   .bk-chip {
     font-size: 10.5px; font-weight: 700; padding: .28em .7em; border-radius: var(--qv-radius-pill);
     border: 2px solid rgba(0,0,0,.12); color: #666;
@@ -331,7 +332,7 @@
         <div class="bk-tile" id="bk-card-t1">
           <div class="bk-head">
             <div>
-              <div class="bk-title">Template 1 &middot; Instance t1</div>
+              <div class="bk-title">Template 1 (2&times;SRT) &middot; Instance t1 &middot; DMF-298</div>
               <div class="bk-sub" id="bk-sub-t1">&mdash;</div>
             </div>
             <span class="bk-badge" id="bk-badge-t1">offline</span>
@@ -339,12 +340,13 @@
           <video id="bkv-t1" class="bk-video" muted autoplay playsinline></video>
           <div>
             <div class="bk-chips" id="bk-chips-t1"></div>
+            <div class="bk-meta" id="bk-meta-t1"></div>
           </div>
         </div>
         <div class="bk-tile" id="bk-card-t2">
           <div class="bk-head">
             <div>
-              <div class="bk-title">Template 2 &middot; Instance t2</div>
+              <div class="bk-title">Template 2 (3&times;SRT) &middot; Instance t2 &middot; DMF-303</div>
               <div class="bk-sub" id="bk-sub-t2">&mdash;</div>
             </div>
             <span class="bk-badge" id="bk-badge-t2">offline</span>
@@ -352,6 +354,7 @@
           <video id="bkv-t2" class="bk-video" muted autoplay playsinline></video>
           <div>
             <div class="bk-chips" id="bk-chips-t2"></div>
+            <div class="bk-meta" id="bk-meta-t2"></div>
           </div>
         </div>
       </section>
@@ -826,8 +829,9 @@
         if (!d.instances.length){ box.textContent='no instance deployed \u2014 waiting for pre-roll'; return; }
         box.innerHTML = d.instances.map(function(i){
           var pod = i.pod ? (i.pod.deleting ? 'terminating' : i.pod.phase) : '\u2014';
+          var perm = (i.jobRef||'').indexOf('manual/')===0 ? ' \u00b7 permanent' : '';
           return '<div class="kvline">'
-            + '<div>Instance</div><div><b>'+i.name+'</b> ('+(i.type||'?')+')</div>'
+            + '<div>Instance</div><div><b>'+i.name+'</b> ('+(i.type||'?')+perm+')</div>'
             + '<div>Phase</div><div>'+(i.phase||'\u2014')+'</div>'
             + '<div>Pod</div><div>'+pod+'</div>'
             + '<div>Sources</div><div>'+(i.sources?i.sources.length:0)+'</div>'
@@ -843,12 +847,33 @@
         }).join('');
       }
 
+      // The tile facts an audience asks about: where the pod runs, how long,
+      // which chart, and which booking put it there \u2014 straight from the API.
+      function bkMeta(name, inst){
+        var box=document.getElementById('bk-meta-'+name);
+        if (!inst){ box.innerHTML=''; return; }
+        var bits=[];
+        var chart=((inst.helmMessage||'').match(/chart ([\w.@-]+)/)||[])[1];
+        if (chart) bits.push('chart '+esc(chart));
+        if (inst.pod){
+          var a=inst.pod.ageSeconds, age=(a==null)?'':(a<90?Math.round(a)+'s':Math.round(a/60)+'m');
+          bits.push('pod '+esc(inst.pod.phase||'')+(age?' \u00b7 '+age:''));
+          if (inst.pod.node) bits.push('node '+esc(String(inst.pod.node).split('.')[0]));
+        }
+        if (inst.jobRef) bits.push('job '+esc(inst.jobRef));
+        box.innerHTML = bits.map(function(b){ return '<span>'+b+'</span>'; }).join('');
+      }
+
       function bkPoll(){
         fetch('/api/booking',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
           if (d.error || !d.instances) return;
+          // The permanent "main" showcase instance is always on air \u2014 only the
+          // booking-driven instances may drive the schedule band and chain.
+          var bookings = d.instances.filter(function(i){ return i.name==='t1'||i.name==='t2'; });
           BK.forEach(function(t){
             var inst = d.instances.filter(function(i){ return i.name===t.name; })[0];
             bkChips(t.name, inst);
+            bkMeta(t.name, inst);
             var sub=document.getElementById('bk-sub-'+t.name), badge=document.getElementById('bk-badge-'+t.name);
             sub.textContent = inst ? ((inst.sources||[]).length + ' SRT sources \u00b7 ' + (inst.type||'')) : 'not deployed';
             // Deployed but no frames yet (image pull, reader starting): say so,
@@ -859,8 +884,8 @@
               badge.classList.remove('pending');
             }
           });
-          bkPhaseBand(d.instances);
-          bkChain(d.instances);
+          bkPhaseBand(bookings);
+          bkChain(bookings);
           bkRenderState(d);
           bkRenderLog(d.story||[]);
         }).catch(function(){});
