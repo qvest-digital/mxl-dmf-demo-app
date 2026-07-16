@@ -877,8 +877,12 @@
           if (id==='tx' && !txStarted){ txStarted=true; txLoad(); }
           if (id==='cp' && !cpStarted){ cpStarted=true; cpLoad(); }
           if (id==='bk' && !bkStarted){ bkStarted=true; bkStart(); }
+          history.replaceState(null, '', '#'+id);
         });
       });
+      // Restore the tab from the URL hash so a reload stays where the viewer was.
+      var initTab=document.querySelector('.tab[data-tab="'+(location.hash||'').slice(1)+'"]');
+      if (initTab) initTab.click();
     })();
   </script>
 </body>
