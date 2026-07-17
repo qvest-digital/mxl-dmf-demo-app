@@ -48,10 +48,16 @@ jobs:
       - name: Derive image tags
         id: tags
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          # sha tag always; version tag when building a v* release tag; latest on main.
+          # sha tag always; version tag on a release. github.event.release.tag_name
+          # is reliable on `release` events (GITHUB_REF is not). Image tags omit the
+          # leading `v` (Docker convention); the manifest artifact keeps it (build.yml).
           echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          if [[ -n "$RELEASE_TAG" ]]; then
+            echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           fi
 
