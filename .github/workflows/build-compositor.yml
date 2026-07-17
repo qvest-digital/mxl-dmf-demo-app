@@ -8,9 +8,7 @@ name: Build & Push compositor image
 on:
   push:
     branches: [main]
-    paths:
-      - "compositor/**"
-      - ".github/workflows/build-compositor.yml"
+    tags: ["v*"]
   pull_request:
     branches: [main]
     paths:
@@ -43,6 +41,16 @@ jobs:
       - name: Set up buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Derive image tags
+        id: tags
+        shell: bash
+        run: |
+          # sha tag always; version tag when building a v* release tag; latest on main.
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build & push (mxl-k8s)
         uses: docker/build-push-action@v6
         with:
@@ -50,7 +58,8 @@ jobs:
           file: compositor/Dockerfile.mxlk8s
           push: true
           tags: |
-            ${{ env.IMAGE }}-mxlk8s:${{ github.sha }}
-            ${{ env.IMAGE }}-mxlk8s:latest
+            ${{ env.IMAGE }}-mxlk8s:${{ steps.tags.outputs.sha }}
+            ${{ steps.tags.outputs.version && format('{0}-mxlk8s:{1}', env.IMAGE, steps.tags.outputs.version) || '' }}
+            ${{ github.ref == 'refs/heads/main' && format('{0}-mxlk8s:latest', env.IMAGE) || '' }}
           cache-from: type=gha,scope=mxlk8s
           cache-to: type=gha,scope=mxlk8s,mode=max
