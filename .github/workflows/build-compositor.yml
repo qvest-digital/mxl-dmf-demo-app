@@ -8,12 +8,16 @@ name: Build & Push compositor image
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    paths:
+      - "compositor/**"
+      - ".github/workflows/build-compositor.yml"
   pull_request:
     branches: [main]
     paths:
       - "compositor/**"
       - ".github/workflows/build-compositor.yml"
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
