@@ -1,6 +1,6 @@
 name: Build & Push compositor image
 
-# Builds the multi-flow MXL compositor image and pushes it to GHCR under
+# Builds the mxl-k8s compositor image and pushes it to GHCR under
 # this repo's namespace. Mediamtx's existing ghcr-pull-secret (rendered
 # by ExternalSecrets from AWS SM) covers pulls of this image too — same
 # registry, same auth, so no extra secret to wire.
@@ -43,21 +43,6 @@ jobs:
       - name: Set up buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & push (regular)
-        uses: docker/build-push-action@v6
-        with:
-          context: compositor
-          file: compositor/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ github.sha }}
-            ${{ env.IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # mxl-k8s-compatible variant: built on the go-mxl builder/runtime
-      # images so the libmxl runtime matches the gateway (see
-      # Dockerfile.mxlk8s). Published under the -mxlk8s suffix.
       - name: Build & push (mxl-k8s)
         uses: docker/build-push-action@v6
         with:
