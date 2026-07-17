@@ -1,0 +1,28 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "minimumReleaseAge": "3 days",
+  "prHourlyLimit": 2,
+  "packageRules": [
+    {
+      "description": "go-mxl base image bumps land as deps commits so release-please folds them into the next rc",
+      "matchPackageNames": ["ghcr.io/qvest-digital/go-mxl-builder", "ghcr.io/qvest-digital/go-mxl-runtime"],
+      "semanticCommitType": "deps",
+      "semanticCommitScope": "compositor"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Dockerfile ARG GO_MXL_TAG",
+      "managerFilePatterns": ["/^compositor/Dockerfile\\.mxlk8s$/"],
+      "matchStrings": ["# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG GO_MXL_TAG=(?<currentValue>\\S+)"]
+    },
+    {
+      "customType": "regex",
+      "description": "k8s image pins tagged with inline renovate markers",
+      "managerFilePatterns": ["/^k8s/.+\\.yaml$/"],
+      "matchStrings": ["# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+image:\\s*\"?(?<depNameTemplate>[^\":@\\s]+)[:@](?<currentValue>[^\"\\s]+)\"?"]
+    }
+  ]
+}

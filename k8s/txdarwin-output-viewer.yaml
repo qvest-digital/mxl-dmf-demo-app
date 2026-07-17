@@ -64,6 +64,7 @@ spec:
         - name: demo-app-ghcr-pull
       initContainers:
         - name: install-intent-shim
+          # renovate: datasource=docker depName=ghcr.io/qvest-digital/mxl-k8s/shim
           image: ghcr.io/qvest-digital/mxl-k8s/shim:v1.0.0-rc.3
           imagePullPolicy: IfNotPresent
           volumeMounts:
