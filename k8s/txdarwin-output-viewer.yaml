@@ -79,10 +79,12 @@ spec:
               value: /run/mxl/domain
             - name: MXL_COMPOSITE_OUT
               value: rtsp://mediamtx:8554/txdarwin-out
-            # Single flow: txDarwin's output. The compositor renders a
+            # Single flow: the permanent txDarwin instance "main"
+            # (writerFlowId = c3-sha1("main"), see txdarwin-flux chart derivation;
+            # DMF-438). The compositor renders a
             # one-tile output when MXL_FLOW_IDS has a single entry.
             - name: MXL_FLOW_IDS
-              value: "c3000000-0000-0000-0000-000000000001"
+              value: "c3000000-0000-0000-0000-b28b7af69320"
             # Grain geometry. The viewer/compositor defaults to 1920x1080, but
             # txDarwin now passes through the 720p input, so c3000000 is v210 at
             # 1296x720. Without this the reader wraps each grain at the wrong
