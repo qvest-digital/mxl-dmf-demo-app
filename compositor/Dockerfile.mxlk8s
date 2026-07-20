@@ -4,7 +4,7 @@
 # the gateway writes mirror flow files with — no MXL_ERR_UNKNOWN on
 # mxlCreateFlowReader.
 #
-# Base: ghcr.io/qvest-digital/go-mxl-{builder,runtime}:1.0.0-rc.8
+# Base: ghcr.io/qvest-digital/go-mxl-{builder,runtime}:1.0.0-rc.9
 #   The go-mxl release pipeline (qvest-digital/go-mxl#47, #49) builds
 #   libfabric + rdma-core from upstream with the flag set that
 #   maximises provider coverage (efa, verbs, tcp, ...) and ships them
@@ -12,11 +12,15 @@
 #   (docker/gateway.Dockerfile) uses the same pair, so compositor +
 #   gateway end up with byte-identical libmxl.so + libfabric.so.
 #
-# Tag bump policy: keep this in sync with mxl-k8s gateway's
-# ARG GO_MXL_TAG, currently 1.0.0-rc.8.
+# Lock-step with the mxl-k8s gateway's GO_MXL_TAG so the libmxl.so this
+# compositor dlopens is byte-identical to the one the gateway writes mirror
+# flow files with — no MXL_ERR_UNKNOWN on mxlCreateFlowReader. The DEPLOYED
+# gateway (gateway:v1.0.0-rc.6) links go-mxl rc.9; keep this equal to it.
+# renovate: datasource=docker depName=ghcr.io/qvest-digital/go-mxl-builder
+ARG GO_MXL_TAG=1.0.0-rc.9
 
 # ── Stage 1: build the compositor binary ────────────────────────────────────
-FROM ghcr.io/qvest-digital/go-mxl-builder:1.0.0-rc.8 AS build
+FROM ghcr.io/qvest-digital/go-mxl-builder:${GO_MXL_TAG} AS build
 
 USER 0:0
 ENV DEBIAN_FRONTEND=noninteractive
@@ -34,7 +38,7 @@ COPY CMakeLists.txt /src/
 COPY vendor /src/vendor/
 COPY src /src/src/
 
-# go-mxl-builder:1.0.0-rc.8 ships libmxl under /opt/libmxl/lib only — no
+# go-mxl-builder:1.0.0-rc.9 ships libmxl under /opt/libmxl/lib only — no
 # multiarch symlink in /usr/lib/x86_64-linux-gnu, so `-lmxl` does not
 # resolve. rc.5 happened to ship the symlink. Restore it here so the
 # build keeps working across go-mxl tags.
@@ -46,7 +50,7 @@ RUN cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release \
  && cmake --install /src/build --prefix /opt/mxl-compositor
 
 # ── Stage 2: slim runtime on the matching runtime image ────────────────────
-FROM ghcr.io/qvest-digital/go-mxl-runtime:1.0.0-rc.8
+FROM ghcr.io/qvest-digital/go-mxl-runtime:${GO_MXL_TAG}
 
 USER 0:0
 ENV DEBIAN_FRONTEND=noninteractive

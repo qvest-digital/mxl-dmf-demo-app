@@ -43,6 +43,7 @@ spec:
         # mxlCreateFlowReader and would race the agent's mirror
         # materialization without it.
         - name: install-intent-shim
+          # renovate: datasource=docker depName=ghcr.io/qvest-digital/mxl-k8s/shim
           image: ghcr.io/qvest-digital/mxl-k8s/shim:v1.0.0-rc.3
           imagePullPolicy: IfNotPresent
           volumeMounts:
@@ -52,6 +53,7 @@ spec:
         - name: mediamtx
           # Upstream image built + pushed by qvest-digital/mediamtx CI on
           # the feature/mxl-static-source branch (workflow: mxl-image.yml).
+          # renovate: datasource=docker depName=ghcr.io/qvest-digital/mediamtx-mxl versioning=docker
           image: ghcr.io/qvest-digital/mediamtx-mxl:ecbae6487474ff7c5fab8970289a07403f78efdd
           imagePullPolicy: Always
           env:

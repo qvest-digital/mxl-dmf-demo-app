@@ -114,6 +114,11 @@ jobs:
               --tag "${TAG}" \
               --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
             echo "Tagged: mxl-dmf-demo-app-manifests:${TAG}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            flux tag artifact "oci://${REPO}:${SHORT_SHA}" \
+              --tag "${GITHUB_REF_NAME}" \
+              --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+            echo "Tagged: mxl-dmf-demo-app-manifests:${GITHUB_REF_NAME}"
           elif [ "$GITHUB_REF_NAME" = "main" ]; then
             flux tag artifact \
               "oci://${REPO}:${SHORT_SHA}" \
