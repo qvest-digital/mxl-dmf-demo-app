@@ -13,9 +13,9 @@
 # lowLatency HLS; the mediamtx mxl:// source's internal encoder does not and
 # crashes the LL muxer ("H264 parameters not provided").
 #
-# c3000000 reaches this node via the MxlReceiver in mxl-receivers.yaml
-# (role=consumer); the mxl-k8s gateway mirrors it here (or it is already
-# local when co-located with txDarwin).
+# c3000000 reaches this node via the receiver the mxl-k8s agent creates
+# when this pod opens the flow; the gateway mirrors it here (or it is
+# already local when co-located with txDarwin).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
