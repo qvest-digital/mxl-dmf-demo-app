@@ -2,12 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # MXL writers — one Deployment per flow, one writer container per pod, one
-# v210 test-pattern flow per writer (flow d4d…000n = tile MXL-n). Writers
-# spread across nodes via soft anti-affinity (comment at each Deployment);
-# the compositor + mediamtx co-locate on one node, so a writer on another
-# node reaches them as a cross-node RDMA mirror, while a writer that shares
-# their node is read locally. The per-flow metrics panel shows each mirror's
-# sourceNode, so the local-vs-RDMA distinction stays visible.
+# v210 test-pattern flow per writer (flow d4d…000n = tile MXL-n). Writer
+# placement is left to the scheduler; whether a writer shares a node with
+# its consumers decides local read vs cross-node RDMA mirror. The per-flow
+# metrics panel shows each mirror's sourceNode, so the local-vs-RDMA
+# distinction stays visible.
 #
 # Patterns are set per writer via MXL_FLOW_PATTERN. An earlier 1080p setup
 # could not run animated videotestsrc patterns (snow, ball, zone-plate hung
@@ -35,20 +34,6 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes with a soft rule instead of hostname
-      # pinning (hostnames differ per cluster). On a 4-node cluster each
-      # writer gets its own node, one flow per node, which the stock gateway
-      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
-      # schedule.
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -142,20 +127,6 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes with a soft rule instead of hostname
-      # pinning (hostnames differ per cluster). On a 4-node cluster each
-      # writer gets its own node, one flow per node, which the stock gateway
-      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
-      # schedule.
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -247,20 +218,6 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes with a soft rule instead of hostname
-      # pinning (hostnames differ per cluster). On a 4-node cluster each
-      # writer gets its own node, one flow per node, which the stock gateway
-      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
-      # schedule.
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
@@ -356,20 +313,6 @@ spec:
         mxl-metrics: "true"
         mxl.qvest-digital.com/role: producer
     spec:
-      # Spread writers across nodes with a soft rule instead of hostname
-      # pinning (hostnames differ per cluster). On a 4-node cluster each
-      # writer gets its own node, one flow per node, which the stock gateway
-      # mirrors cleanly; on a 2-node cluster (EKS) they pack and still
-      # schedule.
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"

@@ -24,12 +24,10 @@ spec:
         # mirrors the compositor uses on the same node.
         mxl.qvest-digital.com/role: consumer
     spec:
-      # mediamtx is unpinned: it schedules anywhere and the operator targets
-      # each flow's mirror at whatever node it lands on. The compositor then
-      # co-locates with it (required podAffinity in composite-deployment.yaml)
-      # because hostPath domain mounts are per-node — on any other node the
-      # compositor would see an empty /run/mxl/domain. Cross-node bridging is
-      # the mxl-k8s gateway's job, not these pods'.
+      # mediamtx is unpinned: it schedules anywhere and the gateway mirrors
+      # each authorized flow into the node-local domain of every node that
+      # runs a selected consumer pod, mediamtx and compositor alike.
+      # Cross-node bridging is the mxl-k8s gateway's job, not these pods'.
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
