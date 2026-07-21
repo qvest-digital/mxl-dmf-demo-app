@@ -618,15 +618,45 @@
 
     // ── Per-flow players: WebRTC/WHEP first (sub-second), HLS on fallback ──
 
+    // ── Player lifecycle registry ──────────────────────────────────────────────
+    // Chrome does NOT throttle background-tab WebRTC decode, so the always-on WHEP
+    // players kept decoding (and pulling ~12 Mbit/s) while this page sat behind a
+    // Google Meet tab — starving Meet and dropping the call. Every PeerConnection,
+    // Hls instance and scene timer registers here so visibilitychange + tab
+    // switches can tear the whole set down and rebuild only what the active tab needs.
+    var MV = (function () {
+      var live = new Set(); // entries: { kind:'pc'|'hls'|'timer', stop:function }
+      return {
+        track: function (entry) { live.add(entry); return entry; },
+        drop: function (entry) { live.delete(entry); },
+        teardownAll: function () {
+          live.forEach(function (e) { try { e.stop(); } catch (x) {} });
+          live.clear();
+        },
+        counts: function () {
+          var c = { pc: 0, hls: 0 };
+          live.forEach(function (e) { if (e.kind === 'pc') c.pc++; else if (e.kind === 'hls') c.hls++; });
+          return c;
+        }
+      };
+    })();
+    // Verification probe: counts should be {pc:0,hls:0} when the tab is hidden and
+    // equal the visible tab's player count when shown.
+    window.__mvDebug = { counts: function () { return MV.counts(); } };
+
     // WHEP: mediamtx serves it at /webrtc/<path>/whep (caddy -> :8889). Non-
     // trickle — gather ICE, POST the offer, apply the answer. onFail() lets the
     // caller drop to HLS (e.g. a cluster without the UDP ICE LoadBalancer).
     function whep(path, video, onFail){
-      var pc, done=false;
-      function fail(){ if(done) return; done=true; clearTimeout(timer); try{pc&&pc.close();}catch(e){} onFail&&onFail(); }
+      var pc, done=false, entry=null;
+      function cleanup(){ try{ pc && pc.close(); }catch(e){} if(entry){ MV.drop(entry); entry=null; } }
+      function fail(){ if(done) return; done=true; clearTimeout(timer); cleanup(); onFail && onFail(); }
       var timer=setTimeout(fail, 8000);
       try { pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]}); }
       catch(e){ return fail(); }
+      // Register so teardownAll()/showTab() can close this PC. stop() must NOT
+      // trigger onFail (that would restart a fallback player we are tearing down).
+      entry=MV.track({kind:'pc', stop:function(){ done=true; clearTimeout(timer); cleanup(); }});
       pc.addTransceiver('video',{direction:'recvonly'});
       pc.addTransceiver('audio',{direction:'recvonly'});
       pc.ontrack=function(e){ if(!video.srcObject){ video.srcObject=e.streams[0]; var p=video.play&&video.play(); if(p&&p.catch)p.catch(function(){}); } };
@@ -652,14 +682,22 @@
     function hlsPlay(n, video){
       var src='/hls/'+(n?('mxl-'+n):'')+'/index.m3u8';
       if (typeof n==='string'){ src='/hls/'+n+'/index.m3u8'; n=0; }
+      var hls=null, entry=null;
+      function stop(){
+        if(hls){ try{ hls.destroy(); }catch(e){} hls=null; }
+        try{ video.removeAttribute('src'); if(video.load) video.load(); }catch(e){}
+        if(entry){ MV.drop(entry); entry=null; }
+      }
+      entry=MV.track({kind:'hls', stop:stop});
       if (Hls.isSupported()) {
-        var hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
+        hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
         hls.loadSource(src); hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play(); });
-        hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ hls.loadSource(src); }, 5000); });
+        hls.on(Hls.Events.ERROR, function(ev,data){ if(!data.fatal) return; setTimeout(function(){ if(hls) hls.loadSource(src); }, 5000); });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src=src; video.addEventListener('loadedmetadata', function(){ video.play(); });
       }
+      return { stop: stop };
     }
 
     // Loading overlay per video: wrap it so an absolute spinner sits over it,
@@ -683,7 +721,8 @@
       var video=document.getElementById('v'+n);
       whep('mxl-'+n, video, function(){ hlsPlay(n, video); });
     }
-    [1,2,3,4].forEach(startPlayer);
+    // Multiviewer players start via SCENES.mv on tab activation (see showTab), not
+    // eagerly — so a backgrounded/inactive Multiviewer decodes nothing.
 
     // Copy button on every detail row — delegated, so it keeps working for the
     // rows build() regenerates on each refresh. Copies the row's value text
@@ -709,9 +748,9 @@
     // so it doesn't pull those mediamtx encoders until someone looks. ──
     (function(){
       var txv=document.getElementById('txv');
-      var txPath='txdarwin-out', txStarted=false, txPc=null;
+      var txPath='txdarwin-out', txPc=null, txHls=null;
       function txLoad(){
-        try{txPc&&txPc.close();}catch(e){} txPc=null; try{txv.srcObject=null;}catch(e){}
+        try{txPc&&txPc.close();}catch(e){} txPc=null; if(txHls){ try{txHls.stop(); }catch(e){} txHls=null; } try{txv.srcObject=null;}catch(e){}
         // txdarwin-out is Main-profile H264 (avc1.4d..; hardcoded in the compositor
         // x264enc) which browser WebRTC decoders render black — they connect, so
         // the WHEP fallback never fires. Play it over HLS/MSE like the 2x2
@@ -719,9 +758,9 @@
         // point, so keep it on WebRTC (WHEP) with HLS fallback; it is encoded
         // baseline (see mediamtx.yml srt-camera) so the browser can decode it.
         if (txPath==='txdarwin-out'){
-          hlsPlay(txPath, txv);
+          txHls=hlsPlay(txPath, txv);
         } else {
-          txPc=whep(txPath, txv, function(){ hlsPlay(txPath, txv); });
+          txPc=whep(txPath, txv, function(){ txHls=hlsPlay(txPath, txv); });
         }
       }
       document.querySelectorAll('.txbtn').forEach(function(b){
@@ -734,12 +773,12 @@
         });
       });
       // Composite: the mosaic the compositor pod RTSP-publishes to mediamtx.
-      var cpv=document.getElementById('cpv'), cpStarted=false, cpPc=null;
+      var cpv=document.getElementById('cpv'), cpPc=null, cpHls=null;
       // Composite is a 2592x1440 (2x2 mosaic) Main-profile H264 stream — browser
       // WebRTC decoders choke on that (they connect but render black), while
       // HLS/MSE handles it fine. So the mosaic plays over HLS, not WHEP. It's a
       // latency-tolerant overview anyway; the live per-flow tiles stay WebRTC.
-      function cpLoad(){ hlsPlay('composite', cpv); }
+      function cpLoad(){ if(cpHls){ try{cpHls.stop(); }catch(e){} cpHls=null; } cpHls=hlsPlay('composite', cpv); }
 
       // ── Booking showcase ──────────────────────────────────────────────────
       // Left: the two instances a MediaOps booking can deploy. A tile's chips
@@ -754,28 +793,44 @@
       // Liveness comes from frame progress, not from the WebRTC state: the peer
       // connection stays "connected" after the publisher disappears, so a
       // torn-down instance would otherwise still read as live.
-      var bkStarted=false;
       var BK=[{name:'t1',path:'txdarwin-t1-out'},{name:'t2',path:'txdarwin-t2-out'}];
       var PHASES=[['booked','Booked'],['deploying','Pre-Roll'],['on-air','On Air'],['post-roll','Post-Roll'],['reclaimed','Reclaimed']];
       var bkLive={t1:false,t2:false};
 
       function bkVideo(t){
         var v=document.getElementById('bkv-'+t.name), badge=document.getElementById('bk-badge-'+t.name);
-        var card=document.getElementById('bk-card-'+t.name), last=-1, pc=null;
+        var card=document.getElementById('bk-card-'+t.name), last=-1, pc=null, hlsHandle=null;
+        var backoff=4000, sinceReconnect=0;
         function connect(){
-          try{pc&&pc.close();}catch(e){} pc=null; try{v.srcObject=null;}catch(e){}
-          pc=whep(t.path, v, function(){ hlsPlay(t.path, v); });
+          try{ pc && pc.close(); }catch(e){} pc=null;
+          if(hlsHandle){ try{ hlsHandle.stop(); }catch(e){} hlsHandle=null; }  // was leaked before
+          try{ v.srcObject=null; }catch(e){}
+          pc=whep(t.path, v, function(){ hlsHandle=hlsPlay(t.path, v); });
         }
         connect();
-        setInterval(function(){
+        var h=setInterval(function(){
           var moving = v.currentTime > last + 0.01;
           last = v.currentTime;
           bkLive[t.name]=moving;
           card.classList.toggle('on', moving);
-          if (moving){ badge.textContent='live'; badge.classList.add('live'); badge.classList.remove('pending'); }
-          else if (!badge.classList.contains('pending')){ badge.textContent='offline'; badge.classList.remove('live'); }
-          if (!moving) connect();
+          if (moving){
+            badge.textContent='live'; badge.classList.add('live'); badge.classList.remove('pending');
+            backoff=4000; sinceReconnect=0;
+          } else if (!badge.classList.contains('pending')){
+            badge.textContent='offline'; badge.classList.remove('live');
+          }
+          // Idle booking flows are the normal state — back off instead of reconnecting
+          // (and leaking a fresh Hls) every tick. Reset once frames flow again.
+          if (!moving){
+            sinceReconnect += 4000;
+            if (sinceReconnect >= backoff){ sinceReconnect=0; backoff=Math.min(backoff*2,60000); connect(); }
+          }
         }, 4000);
+        MV.track({kind:'timer', stop:function(){
+          clearInterval(h);
+          try{ pc && pc.close(); }catch(e){}
+          if(hlsHandle){ try{ hlsHandle.stop(); }catch(e){} }
+        }});
       }
 
       function bkChips(name, inst){
@@ -866,19 +921,44 @@
         }).catch(function(){});
       }
 
-      function bkStart(){ BK.forEach(bkVideo); bkPoll(); setInterval(bkPoll, 2500); }
+      function bkStart(){
+        BK.forEach(bkVideo);
+        bkPoll();
+        var ph=setInterval(bkPoll, 2500);
+        MV.track({kind:'timer', stop:function(){ clearInterval(ph); }});
+      }
 
-      document.querySelectorAll('.tab').forEach(function(t){
-        t.addEventListener('click', function(){
-          var id=t.getAttribute('data-tab');
-          document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('active'); });
-          t.classList.add('active');
-          ['mv','tx','cp','bk'].forEach(function(k){ document.getElementById('pane-'+k).classList.toggle('active', id===k); });
-          if (id==='tx' && !txStarted){ txStarted=true; txLoad(); }
-          if (id==='cp' && !cpStarted){ cpStarted=true; cpLoad(); }
-          if (id==='bk' && !bkStarted){ bkStarted=true; bkStart(); }
-        });
+      var activeTab = 'mv';
+      var SCENES = {
+        mv: function(){ [1,2,3,4].forEach(startPlayer); },
+        tx: function(){ txLoad(); },
+        cp: function(){ cpLoad(); },
+        bk: function(){ bkStart(); }
+      };
+      function showTab(id){
+        if (!SCENES[id]) return;
+        MV.teardownAll();               // stop the previous scene's players + timers
+        activeTab = id;
+        document.querySelectorAll('.tab').forEach(function(x){ x.classList.toggle('active', x.getAttribute('data-tab')===id); });
+        ['mv','tx','cp','bk'].forEach(function(k){ document.getElementById('pane-'+k).classList.toggle('active', id===k); });
+        if (document.visibilityState !== 'hidden') SCENES[id]();
+      }
+      // The core fix: a backgrounded tab must decode nothing. Closing PeerConnections
+      // (not just pausing <video>) is the only way to stop WebRTC decode + RTP; HLS is
+      // destroyed too. On return, rebuild only the active tab's players.
+      document.addEventListener('visibilitychange', function(){
+        if (document.visibilityState === 'hidden') {
+          MV.teardownAll();
+        } else {
+          MV.teardownAll();            // clear any half-open entries, then rebuild clean
+          SCENES[activeTab] && SCENES[activeTab]();
+        }
       });
+      document.querySelectorAll('.tab').forEach(function(t){
+        t.addEventListener('click', function(){ showTab(t.getAttribute('data-tab')); });
+      });
+      // Start the initially-active tab (Multiviewer).
+      showTab('mv');
     })();
   </script>
 </body>
