@@ -13,8 +13,9 @@
 #     via libmxl-fabrics (EFA provider).
 #   - mxl-k8s agent DaemonSet on this node materializes the mirror at
 #     /run/mxl/domain, so this pod reads from local tmpfs.
-#   - MxlReceiver CRs (mxl-receivers.yaml) express per-flow intent;
-#     the operator reconciles them into MxlFlowMirror resources.
+#   - The intent-shim reports each flow this pod opens; the mxl-k8s
+#     agent creates the matching MxlReceiver and the operator
+#     reconciles it into MxlFlowMirror resources.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,7 +32,6 @@ spec:
     metadata:
       labels:
         app: composite
-        # Role label drives the MxlReceiver podSelector.
         mxl.qvest-digital.com/role: consumer
     spec:
       tolerations:
@@ -62,8 +62,8 @@ spec:
               value: /run/mxl/domain
             - name: MXL_COMPOSITE_OUT
               value: rtsp://mediamtx:8554/composite
-            # MXL_FLOW_IDS aligns 1:1 with the MxlReceiver CRs and the
-            # writer-mxl-{1..4} Deployments. Four flows -> the compositor
+            # MXL_FLOW_IDS aligns 1:1 with the writer-mxl-{1..4}
+            # Deployments. Four flows -> the compositor
             # lays out a 2x2 mosaic automatically (grid = ceil(sqrt(n))).
             - name: MXL_FLOW_IDS
               value: >-
