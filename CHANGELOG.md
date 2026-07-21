@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.0-rc.2](https://github.com/qvest-digital/mxl-dmf-demo-app/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-07-21)
+
+
+### Bug Fixes
+
+* **multiviewer:** stop degrading Google Meet (background decode + reconnect leak) ([#59](https://github.com/qvest-digital/mxl-dmf-demo-app/issues/59)) ([22ff055](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/22ff0556cf5e9fa07a021d44a8a6ae2e7ed565a4))
+
+
+### Miscellaneous
+
+* **k8s:** drop pod affinity and anti-affinity rules ([#62](https://github.com/qvest-digital/mxl-dmf-demo-app/issues/62)) ([217077a](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/217077aa45ea45809e8d7c9413021329ba817b7e))
+* **k8s:** drop the manual MxlReceiver CRs ([#64](https://github.com/qvest-digital/mxl-dmf-demo-app/issues/64)) ([502ce78](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/502ce782116bef72da98076343c1cf5b152c2fdd))
+
 ## [1.0.0-rc.1](https://github.com/qvest-digital/mxl-dmf-demo-app/compare/v1.0.0-rc.0...v1.0.0-rc.1) (2026-07-20)
 
 
