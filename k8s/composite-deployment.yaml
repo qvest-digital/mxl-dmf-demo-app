@@ -31,22 +31,9 @@ spec:
     metadata:
       labels:
         app: composite
-        # Role label drives the MxlReceiver podSelector + the writer
-        # pod's podAntiAffinity so the gateway has to bridge two nodes.
+        # Role label drives the MxlReceiver podSelector.
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Co-locate with mediamtx (itself unpinned + portable). Both are
-      # role: consumer, so the operator already mirrors every flow to
-      # mediamtx's node; sharing the node lets the compositor read those same
-      # node-local mirrors and RTSP-publish the mosaic locally. Avoids a
-      # hardcoded hostname (which doesn't exist on the 2-node EKS cluster).
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: mediamtx
-              topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"

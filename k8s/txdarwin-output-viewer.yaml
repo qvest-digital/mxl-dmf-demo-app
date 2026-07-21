@@ -34,28 +34,6 @@ spec:
         app: txdarwin-output-viewer
         mxl.qvest-digital.com/role: consumer
     spec:
-      # Placement: the required podAffinity pins this pod to the composite
-      # node, so all consumers share one node. The podAntiAffinity steers it
-      # away from producer nodes, but only as a preference. It must not be a
-      # hard rule: on a two-node EKS cluster the composite shares its node
-      # with the writers, so requiring both "with composite" and "not with
-      # producers" leaves no valid node. The pod would stay Pending until the
-      # demo-app health gate and the terraform fluxcd-bootstrap step time out.
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: composite
-              topologyKey: kubernetes.io/hostname
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    mxl.qvest-digital.com/role: producer
-                topologyKey: kubernetes.io/hostname
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
