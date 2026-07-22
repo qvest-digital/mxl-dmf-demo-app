@@ -24,10 +24,25 @@ spec:
         # same node.
         mxl.qvest-digital.com/role: consumer
     spec:
-      # mediamtx is unpinned: it schedules anywhere and the gateway mirrors
-      # each authorized flow into the node-local domain of every node that
-      # runs a selected consumer pod, mediamtx and compositor alike.
-      # Cross-node bridging is the mxl-k8s gateway's job, not these pods'.
+      # mediamtx is otherwise unpinned: the gateway mirrors each authorized
+      # flow into the node-local domain of every node that runs a selected
+      # consumer pod, mediamtx and compositor alike. Cross-node bridging is
+      # the mxl-k8s gateway's job, not these pods'.
+      #
+      # But it must NOT land on an LB-excluded node (the control planes on
+      # both clusters, which are schedulable): mediamtx-webrtc-udp uses
+      # externalTrafficPolicy: Local, so only the node hosting this pod
+      # passes the LB health check — and excluded nodes are never registered
+      # as targets at all. mediamtx on a control plane = every NLB target
+      # unhealthy = all WebRTC/ICE traffic blackholed (tiles fall back to
+      # HLS). On dev this was a nightly-rebuild dice roll.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node.kubernetes.io/exclude-from-external-load-balancers
+                    operator: DoesNotExist
       tolerations:
         - key: "vpc.amazonaws.com/efa"
           operator: "Exists"
