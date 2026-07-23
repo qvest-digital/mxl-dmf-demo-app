@@ -2,7 +2,7 @@
 
 > **Deep-dive companion to [`../README.md`](../README.md).** That file gives the 60-second story; this one explains every component and the design constraints that hold them together.
 
-The signal path in one line: **writer pods → MXL domain (tmpfs) → mxl-k8s gateway/agent RDMA bridge → compositor (zero-copy, x264) → mediamtx (RTSP/WHEP/HLS) → Caddy → browser multiviewer**.
+The signal path in one line: **writer pods → MXL domain (tmpfs) → mxl-k8s gateway/agent RDMA bridge → the consumer node's mirrored domain**. From there, two independent zero-copy consumers feed the browser: **mediamtx** reads each flow directly (per-flow tiles → the Multiviewer grid) and the **compositor** builds a 2 × 2 mosaic (→ the Composite tab); both are served through Caddy over WHEP/HLS.
 
 ---
 
@@ -52,7 +52,7 @@ _Source: `k8s/composite-deployment.yaml`_
 
 ## 3. Compositor
 
-The compositor is a C++/GStreamer process. It reads all configured flows from the MXL domain zero-copy via libmxl, composites them into a mosaic, encodes the mosaic once with x264, and pushes the result to mediamtx via RTSP.
+The compositor is a C++/GStreamer process. It reads all configured flows from the MXL domain zero-copy via libmxl, composites them into a mosaic, encodes the mosaic once with x264, and pushes the result to mediamtx via RTSP. The mosaic it produces is what the multiviewer's **Composite** tab plays — the default Multiviewer grid instead shows the four per-flow streams mediamtx reads directly from the domain (see §4 and §6).
 
 **Environment contract:**
 
