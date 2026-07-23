@@ -689,6 +689,12 @@
         if(entry){ MV.drop(entry); entry=null; }
       }
       entry=MV.track({kind:'hls', stop:stop});
+      // A WHEP attempt that fell back to here left its (now-dead) MediaStream on
+      // the element via pc.ontrack. srcObject takes precedence over an MSE src,
+      // so hls.js would attach but never render — the tile freezes on the last
+      // WebRTC frame. Drop it so HLS drives the element. On EKS every tile hits
+      // this path: the WebRTC UDP NLB never completes ICE, so WHEP always fails.
+      try{ video.srcObject=null; }catch(e){}
       if (Hls.isSupported()) {
         hls=new Hls({liveSyncDurationCount:3,liveMaxLatencyDurationCount:8,enableWorker:true,lowLatencyMode:false});
         hls.loadSource(src); hls.attachMedia(video);
