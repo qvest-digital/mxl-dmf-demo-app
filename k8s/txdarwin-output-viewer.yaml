@@ -76,14 +76,18 @@ spec:
             capabilities:
               add: ["IPC_LOCK", "SYS_RESOURCE"]
           volumeMounts:
-            - name: domain-volume
-              mountPath: /run/mxl/domain
+            # Mount /run/mxl as a whole rather than the domain subdir and
+            # agent.sock separately: a single-file hostPath mount pins
+            # the socket's inode at container start, and the mxl-k8s
+            # agent unlinks and recreates agent.sock on every restart,
+            # stranding any consumer pod already running at that point
+            # on the dead inode until the pod itself restarts.
+            - name: mxl-run
+              mountPath: /run/mxl
               readOnly: false
             - name: intent-shim
               mountPath: /opt/mxl-intent
               readOnly: true
-            - name: agent-sock
-              mountPath: /run/mxl/agent.sock
           resources:
             # One flow + a single x264 encode — far lighter than the 9-flow
             # composite.
@@ -94,13 +98,12 @@ spec:
               cpu: "4"
               memory: 4Gi
       volumes:
-        - name: domain-volume
+        # Mounting the whole /run/mxl (not just domain/) means the
+        # intent-shim always resolves agent.sock through the current
+        # directory entry rather than a pinned inode.
+        - name: mxl-run
           hostPath:
-            path: /run/mxl/domain
+            path: /run/mxl
             type: DirectoryOrCreate
         - name: intent-shim
           emptyDir: {}
-        - name: agent-sock
-          hostPath:
-            path: /run/mxl/agent.sock
-            type: Socket
