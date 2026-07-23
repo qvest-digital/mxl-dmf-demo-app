@@ -8,9 +8,8 @@ A Kubernetes demo for MXL DMF showing zero-copy RDMA transport of uncompressed v
 - **Per-flow delivery straight from the RDMA domain** — mediamtx reads each MXL flow directly from the domain via its MXL static-source plugin and serves it as an independent WHEP/HLS stream. The default Multiviewer grid is four independent, RDMA-delivered tiles — the compositor is *not* in that path.
 - **Zero-copy multi-flow compositing via libmxl** — separately, the C++/GStreamer compositor reads all flows zero-copy, lays them out in a single GStreamer compositor element, and encodes a 2 × 2 mosaic once with x264 (no per-flow decode pass). That mosaic is the separate Composite tab.
 - **Live WebRTC and HLS delivery** — mediamtx serves both paths via WHEP (WebRTC) with HLS as fallback, rendered in-browser by hls.js.
-- **Writer kill-and-recover resilience story** — the metrics aggregator exposes `POST /api/kill/<n>` to delete a writer pod; the per-flow panel shows RDMA metrics (mirror phase, source node, provider, grain delivery) so recovery is visible in real time.
 
-## The 60-second story
+## Short explanation
 
 Four writer pods (`writer-mxl-{1..4}`) each produce a single uncompressed v210 720p test-pattern flow — smpte, ball, gamut, checkers-8 — into `/run/mxl/domain` on whichever node the scheduler assigns them. When a writer lands on a different node than the pod reading it, the **mxl-k8s gateway DaemonSet** on the writer's node sees the new flow appear under `/run/mxl/domain` (via fanotify) and bridges the raw grains across the EFA fabric; the **mxl-k8s agent DaemonSet** on the consumer's node materialises the mirror at `/run/mxl/domain` so it looks local. The intent-shim (`libmxl-intent.so`, injected by an init container) intercepts the first `mxlCreateFlowReader` call and blocks it until the agent signals that the mirror is ready, preventing FLOW_NOT_FOUND races during startup or pod reschedule.
 
