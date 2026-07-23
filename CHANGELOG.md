@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0-rc.3](https://github.com/qvest-digital/mxl-dmf-demo-app/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-07-23)
+
+
+### Bug Fixes
+
+* **k8s:** keep mediamtx off LB-excluded nodes ([a6f7a6f](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/a6f7a6f2c5d3af8c72a347a5a14df21b7b2a13bc))
+* **k8s:** keep mediamtx off LB-excluded nodes ([1930f1b](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/1930f1b2c637c76a6ea2a50c87a8e2a7593695c9))
+* **multiviewer:** drop dead WebRTC stream before HLS fallback ([b834827](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/b83482738a95d291c52b12e4069411c993300a04))
+* **multiviewer:** reattach WebRTC stream after scene switch ([0d046a7](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/0d046a799044e14c2ad88915ddf0e41a2bbdda76))
+* reattach WebRTC stream after scene switch ([683d9c7](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/683d9c76a9dfc51a773bff7eece203ecf5d29507))
+
 ## [1.0.0-rc.2](https://github.com/qvest-digital/mxl-dmf-demo-app/compare/v1.0.0-rc.1...v1.0.0-rc.2) (2026-07-21)
 
 
