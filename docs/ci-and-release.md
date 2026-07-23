@@ -1,7 +1,7 @@
 # CI and Release
 
 > **Audience:** Internal Qvest engineers.<br>
-> **Companion docs:** [architecture.md](architecture.md) for component deep-dives (including the go-mxl lock-step constraint); [operations.md](operations.md) for how the manifests artifact lands on the cluster; [README.md](../README.md) for the 60-second story.
+> **Companion docs:** [architecture.md](architecture.md) for component deep-dives (including the go-mxl lock-step constraint); [README.md](../README.md) for the 60-second story.
 
 ---
 
@@ -41,7 +41,7 @@ Versioning is handled by **release-please** using conventional commits, producin
 
 The `config/` subdirectory must be included in the copy — a flat `*.yaml` glob would silently drop it, causing kustomize to fail in Flux with a missing-file error.
 
-For how Flux reconciles the artifact onto the cluster, see [operations.md §1 — How deployment works](operations.md#1-how-deployment-works).
+On each cluster a Flux `OCIRepository` watches this artifact repository and its `Kustomization` reconciles every new revision onto the cluster.
 
 ### `build-compositor.yml` — Build and push compositor image
 
