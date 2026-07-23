@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-rc.4](https://github.com/qvest-digital/mxl-dmf-demo-app/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-07-23)
+
+
+### Bug Fixes
+
+* **k8s:** mount /run/mxl directory for intent socket access ([#69](https://github.com/qvest-digital/mxl-dmf-demo-app/issues/69)) ([8092e65](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/8092e65eb1e5f76c3b52261e5e6600ea6c2673f6))
+* **k8s:** parameterize WebRTC ICE hostname per environment ([#70](https://github.com/qvest-digital/mxl-dmf-demo-app/issues/70)) ([0961461](https://github.com/qvest-digital/mxl-dmf-demo-app/commit/096146174a71c9dc7f062fd557167b5eabdfc6e1))
+
 ## [1.0.0-rc.3](https://github.com/qvest-digital/mxl-dmf-demo-app/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-07-23)
 
 
