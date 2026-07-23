@@ -84,14 +84,18 @@ spec:
             - name: config
               mountPath: /mediamtx.yml
               subPath: mediamtx.yml
-            - name: mxl-domain
-              mountPath: /run/mxl/domain
+            # Mount /run/mxl as a whole rather than the domain subdir and
+            # agent.sock separately: a single-file hostPath mount pins
+            # the socket's inode at container start, and the mxl-k8s
+            # agent unlinks and recreates agent.sock on every restart,
+            # stranding any consumer pod already running at that point
+            # on the dead inode until the pod itself restarts.
+            - name: mxl-run
+              mountPath: /run/mxl
               readOnly: false
             - name: intent-shim
               mountPath: /opt/mxl-intent
               readOnly: true
-            - name: agent-sock
-              mountPath: /run/mxl/agent.sock
           livenessProbe:
             tcpSocket:
               port: 8888
@@ -159,16 +163,15 @@ spec:
         # Per-node MXL domain shared with the mxl-k8s agent + gateway
         # DaemonSets via hostPath. The agent materializes mirrors here;
         # mediamtx-mxl's static source reads from this same path.
-        - name: mxl-domain
+        # Mounting the whole /run/mxl (not just domain/) means the
+        # intent-shim always resolves agent.sock through the current
+        # directory entry rather than a pinned inode.
+        - name: mxl-run
           hostPath:
-            path: /run/mxl/domain
+            path: /run/mxl
             type: DirectoryOrCreate
         - name: intent-shim
           emptyDir: {}
-        - name: agent-sock
-          hostPath:
-            path: /run/mxl/agent.sock
-            type: Socket
         - name: caddy-conf
           configMap:
             name: multiviewer
