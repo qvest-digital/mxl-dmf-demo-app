@@ -659,7 +659,14 @@
       entry=MV.track({kind:'pc', stop:function(){ done=true; clearTimeout(timer); cleanup(); }});
       pc.addTransceiver('video',{direction:'recvonly'});
       pc.addTransceiver('audio',{direction:'recvonly'});
-      pc.ontrack=function(e){ if(!video.srcObject){ video.srcObject=e.streams[0]; var p=video.play&&video.play(); if(p&&p.catch)p.catch(function(){}); } };
+      // ontrack fires once per transceiver (video+audio) with the same
+      // stream — attach only on change. Must compare, not truthiness-test:
+      // scene teardown closes the PC but leaves the dead MediaStream on the
+      // element, so a truthiness guard makes every re-entered scene skip
+      // attaching its new stream (PC connected and receiving, tile frozen
+      // on the dead stream, and no HLS fallback since the new connection
+      // never reports 'failed').
+      pc.ontrack=function(e){ if(video.srcObject!==e.streams[0]){ video.srcObject=e.streams[0]; var p=video.play&&video.play(); if(p&&p.catch)p.catch(function(){}); } };
       pc.onconnectionstatechange=function(){
         if(pc.connectionState==='connected'){ done=true; clearTimeout(timer); }
         else if(pc.connectionState==='failed'){ fail(); }
