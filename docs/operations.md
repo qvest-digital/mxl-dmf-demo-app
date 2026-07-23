@@ -81,7 +81,7 @@ window.__mvDebug.counts()
 
 The right-hand panel polls `GET /api/flows` every 1.5 seconds. It shows per-flow:
 
-- Grain rate, throughput, and compositor `live` status (from `/stats.json` via the compositor)
+- Grain rate and throughput (nominal — derived from the flow's grain rate, not measured) plus `live` status, gated by writer-ready + `MxlFlow` `OriginFresh` + mirror state
 - Mirror `phase` and `sourceNode` — whether the flow is read locally (writer co-located with consumer) or over RDMA
 - `MxlReceiver` and `MxlFlowMirror` CR state
 - Writer pod status and restart count

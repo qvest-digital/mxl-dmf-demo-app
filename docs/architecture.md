@@ -106,10 +106,10 @@ _Source: `k8s/mediamtx-deployment.yaml`, `k8s/config/mediamtx.yml`, `k8s/config/
 
 ## 5. Metrics Aggregator
 
-A dependency-free Python HTTP server (`aggregator.py`) that runs as its own Deployment (`demo-metrics`). It requires no pip installs — only the Python standard library — so it runs on `python:3-slim` without a build step.
+A dependency-free Python HTTP server (`aggregator.py`) that runs as its own Deployment (`demo-metrics`). It requires no pip installs — only the Python standard library — so it runs on `python:3.12-slim` without a build step.
 
 **Data sources merged per flow:**
-- Compositor `/stats.json` — per-flow `fps`, `pushed`, `missed`, `mbps`, `live`.
+- Nominal grain rate — per-flow `fps` and `mbps` are computed from the flow's *nominal* grain rate, not measured. The aggregator fetches the compositor's `/stats.json` but does not currently consume it for the per-flow panel; no consumer samples received fps/Mbit centrally.
 - Kubernetes pod API — writer pod `node`, `phase`, `ready`, `restarts`, `image`, `pattern`.
 - `MxlReceiver` CR — `phase`, `provider`, `boundMirror`.
 - `MxlFlowMirror` CR — `phase`, `sourceNode`, `provider`.

@@ -129,7 +129,7 @@ These PRs are classified as `deps(compositor)` commits (configured in `renovate.
 
 `renovate.json` registers two custom regex managers:
 
-**1. Dockerfile `ARG GO_MXL_TAG`** (`managerFilePatterns: compositor/Dockerfile.mxlk8s`):
+**1. Dockerfile `ARG GO_MXL_TAG`** (`managerFilePatterns: /^compositor/Dockerfile\.mxlk8s$/`):
 
 Renovate matches the inline marker and the `ARG` line together:
 
@@ -140,7 +140,7 @@ ARG GO_MXL_TAG=<currentValue>
 
 The marker is present in `compositor/Dockerfile.mxlk8s` directly above the `ARG GO_MXL_TAG` line. When a new version of `ghcr.io/qvest-digital/go-mxl-builder` is available, Renovate updates `<currentValue>` in place, which causes both build stages to use the new tag (the runtime stage reuses the same `${GO_MXL_TAG}` ARG).
 
-**2. Inline-marker k8s image pins** (`managerFilePatterns: k8s/*.yaml`):
+**2. Inline-marker k8s image pins** (`managerFilePatterns: /^k8s/.+\.yaml$/`):
 
 Kubernetes manifests can opt into Renovate updates by adding an inline marker on the line immediately before the `image:` field:
 
@@ -149,7 +149,7 @@ Kubernetes manifests can opt into Renovate updates by adding an inline marker on
 image: "<image>:<currentValue>"
 ```
 
-Renovate scans all `k8s/*.yaml` files for this pattern and manages those image tags directly.
+Renovate scans matching `k8s/` YAML files for this pattern and manages those image tags directly.
 
 ### Rate limiting
 
