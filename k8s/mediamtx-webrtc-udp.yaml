@@ -17,12 +17,18 @@ metadata:
     # sc / MetalLB: pin the internal IP.
     metallb.universe.tf/loadBalancerIPs: "10.20.53.107"
     # EKS: provision an internet-facing UDP NLB (MetalLB ignores these). A
-    # stable DNS name via external-dns (which on sc filters run.dmf, so it
-    # ignores this demo.dmf name) survives the nightly cluster rebuild even
-    # though the NLB IP changes.
-    service.beta.kubernetes.io/aws-load-balancer-type: nlb
-    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-    external-dns.alpha.kubernetes.io/hostname: webrtc.demo.dmf.qvest-digital.com
+    # stable DNS name via external-dns survives the nightly cluster rebuild
+    # even though the NLB IP changes. hostname_suffix/cluster_domain are the
+    # same per-environment substitution tokens httproute.yaml uses for the
+    # app hostname itself — flat webrtc${hostname_suffix}.${cluster_domain},
+    # a sibling of demo${hostname_suffix}.${cluster_domain} rather than a
+    # child of it, so the same formula also resolves for consumers whose
+    # cluster_domain is itself a dedicated subdomain (e.g. a bare-metal
+    # cluster's own delegated zone) and not just dmf.qvest-digital.com.
+    # Without the suffix, every EKS environment (dev, and every pr-env)
+    # would claim this identical record, so only the last one to reconcile
+    # would actually own it.
+    external-dns.alpha.kubernetes.io/hostname: webrtc${hostname_suffix}.${cluster_domain}
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
