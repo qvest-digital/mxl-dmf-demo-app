@@ -1,10 +1,5 @@
 # CI and Release
 
-> **Audience:** Internal Qvest engineers.<br>
-> **Companion docs:** [architecture.md](architecture.md) for component deep-dives (including the go-mxl lock-step constraint); [README.md](../README.md) for the 60-second story.
-
----
-
 ## 1. Overview
 
 There are two independent build outputs:
